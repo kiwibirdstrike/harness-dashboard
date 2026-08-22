@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from harness.config import ConfigError, load_assignments, save_assignments
+from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
 
 
@@ -70,6 +71,32 @@ class ConfigTests(unittest.TestCase):
                 load_assignments(root)
 
             self.assertEqual(config.read_text(encoding="utf-8"), "{broken")
+
+
+class LauncherTests(unittest.TestCase):
+    def test_macos_spec_quotes_shell_path_and_escapes_applescript(self):
+        folder = Path('/tmp/Client\'s "Project"')
+
+        spec = build_launch_spec(folder, "Codex", system="Darwin")
+
+        self.assertEqual(spec.argv[:2], ("osascript", "-e"))
+        self.assertIn("codex", spec.argv[2])
+        self.assertIn("cd ", spec.argv[2])
+        self.assertIn('\\"Project\\"', spec.argv[2])
+
+    def test_windows_spec_uses_working_directory_without_path_concatenation(self):
+        folder = Path(r"C:\Users\A Person\Project")
+
+        spec = build_launch_spec(folder, "Claude", system="Windows")
+
+        self.assertEqual(spec.argv, ("cmd.exe", "/k", "claude"))
+        self.assertEqual(spec.cwd, folder)
+
+    def test_unknown_agent_and_platform_are_rejected(self):
+        with self.assertRaises(LaunchError):
+            build_launch_spec(Path("/tmp"), "Other", system="Darwin")
+        with self.assertRaises(LaunchError):
+            build_launch_spec(Path("/tmp"), "Codex", system="Linux")
 
 
 if __name__ == "__main__":
