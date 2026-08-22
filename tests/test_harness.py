@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app import assignment_key
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
@@ -97,6 +98,14 @@ class LauncherTests(unittest.TestCase):
             build_launch_spec(Path("/tmp"), "Other", system="Darwin")
         with self.assertRaises(LaunchError):
             build_launch_spec(Path("/tmp"), "Codex", system="Linux")
+
+
+class AppPathTests(unittest.TestCase):
+    def test_root_and_child_assignment_keys(self):
+        root = Path("/project")
+
+        self.assertEqual(assignment_key(root, root), ".")
+        self.assertEqual(assignment_key(root, root / "src"), "src")
 
 
 if __name__ == "__main__":
