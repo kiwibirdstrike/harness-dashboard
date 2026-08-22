@@ -83,13 +83,21 @@ class AgentRegistry:
     ) -> Agent:
         name, command = self._validate_fields(name, command, color)
         agent_id = str(uuid.uuid4())
-        copied_image = self._copy_image(agent_id, image)
+        existing = self.load()
+        copied_image, staged = self._stage_image(agent_id, image)
         agent = Agent(agent_id, name, command, copied_image, color)
+        saved = False
         try:
-            self._save([*self.load(), agent])
+            self._save([*existing, agent])
+            saved = True
+            self._install_image(copied_image, staged)
         except RegistryError:
-            self._delete_image(copied_image)
+            if saved:
+                self._save(existing)
             raise
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         return agent
 
     def update(
@@ -105,9 +113,20 @@ class AgentRegistry:
         previous = next((agent for agent in agents if agent.id == agent_id), None)
         if previous is None:
             raise RegistryError("Agent not found")
-        copied_image = self._copy_image(agent_id, image)
+        copied_image, staged = self._stage_image(agent_id, image)
         updated = Agent(agent_id, name, command, copied_image, color)
-        self._save([updated if agent.id == agent_id else agent for agent in agents])
+        saved = False
+        try:
+            self._save([updated if agent.id == agent_id else agent for agent in agents])
+            saved = True
+            self._install_image(copied_image, staged)
+        except RegistryError:
+            if saved:
+                self._save(agents)
+            raise
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         if previous.image != copied_image:
             self._delete_image(previous.image)
         return updated
@@ -124,21 +143,41 @@ class AgentRegistry:
             raise RegistryError("Choose a supported accent color")
         return name, command
 
-    def _copy_image(self, agent_id: str, source: Path | None) -> str | None:
+    def _stage_image(
+        self, agent_id: str, source: Path | None
+    ) -> tuple[str | None, Path | None]:
         if source is None:
-            return None
+            return None, None
         source = source.expanduser().resolve()
         try:
-            if source.suffix.lower() != ".png" or source.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+            with source.open("rb") as image_file:
+                signature = image_file.read(8)
+            if source.suffix.lower() != ".png" or signature != b"\x89PNG\r\n\x1a\n":
                 raise RegistryError("Signature image must be a PNG")
             images = self.root / "images"
             images.mkdir(parents=True, exist_ok=True)
             destination = images / f"{agent_id}.png"
-            if source != destination.resolve():
-                shutil.copyfile(source, destination)
-            return destination.relative_to(self.root).as_posix()
+            relative = destination.relative_to(self.root).as_posix()
+            if source == destination.resolve():
+                return relative, None
+            with tempfile.NamedTemporaryFile(
+                "wb", dir=images, prefix=f"{agent_id}.", suffix=".tmp", delete=False
+            ) as temporary:
+                staged = Path(temporary.name)
+                with source.open("rb") as image_file:
+                    shutil.copyfileobj(image_file, temporary)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            return relative, staged
         except OSError as error:
             raise RegistryError(f"Cannot copy signature image: {error}") from error
+
+    def _install_image(self, relative_path: str | None, staged: Path | None) -> None:
+        if relative_path and staged is not None:
+            try:
+                os.replace(staged, self.root / relative_path)
+            except OSError as error:
+                raise RegistryError(f"Cannot install signature image: {error}") from error
 
     def _delete_image(self, relative_path: str | None) -> None:
         if not relative_path:

@@ -2,6 +2,7 @@ import base64
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app import assignment_key, can_launch, resolve_agent_label
 from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
@@ -164,6 +165,25 @@ class AgentRegistryTests(unittest.TestCase):
             with self.assertRaises(RegistryError):
                 registry.add("Bad", "bad", fake, "#7C3AED")
 
+    def test_failed_update_does_not_replace_the_previous_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "first.png"
+            second = root / "second.png"
+            first.write_bytes(self.PNG)
+            second.write_bytes(self.PNG + b"replacement")
+            registry = AgentRegistry(root / "data")
+            registry.load()
+            agent = registry.add("Mine", "mine", first, "#7C3AED")
+            copied = registry.root / agent.image
+            original = copied.read_bytes()
+
+            with mock.patch.object(registry, "_save", side_effect=RegistryError("disk full")):
+                with self.assertRaises(RegistryError):
+                    registry.update(agent.id, "Mine", "mine", second, "#7C3AED")
+
+            self.assertEqual(copied.read_bytes(), original)
+
 
 class LauncherTests(unittest.TestCase):
     def test_macos_spec_quotes_shell_path_and_escapes_applescript(self):
@@ -222,6 +242,12 @@ class FakeTree:
     def winfo_rooty(self):
         return 200
 
+    def winfo_width(self):
+        return 300
+
+    def winfo_height(self):
+        return 100
+
     def identify_row(self, y):
         return "row-3" if y == 25 else ""
 
@@ -234,6 +260,7 @@ class WidgetHelperTests(unittest.TestCase):
     def test_tree_row_at_pointer_converts_screen_to_widget_coordinates(self):
         self.assertEqual(tree_row_at_pointer(FakeTree(), 130, 225), "row-3")
         self.assertEqual(tree_row_at_pointer(FakeTree(), 130, 260), "")
+        self.assertEqual(tree_row_at_pointer(FakeTree(), 450, 225), "")
 
 
 class SettingsValidationTests(unittest.TestCase):

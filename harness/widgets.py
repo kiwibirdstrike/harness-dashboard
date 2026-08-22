@@ -13,8 +13,11 @@ def fallback_initial(name: str) -> str:
 
 
 def tree_row_at_pointer(tree: object, x_root: int, y_root: int) -> str:
-    del x_root
-    return tree.identify_row(y_root - tree.winfo_rooty())
+    x = x_root - tree.winfo_rootx()
+    y = y_root - tree.winfo_rooty()
+    if not 0 <= x < tree.winfo_width() or not 0 <= y < tree.winfo_height():
+        return ""
+    return tree.identify_row(y)
 
 
 class AgentCard(tk.Canvas):
