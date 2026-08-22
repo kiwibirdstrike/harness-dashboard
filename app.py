@@ -18,6 +18,10 @@ def assignment_key(root: Path, folder: Path) -> str:
     return "." if relative == Path(".") else relative.as_posix()
 
 
+def can_launch(agent: str, folder: Path) -> bool:
+    return agent in AGENT_COMMANDS and folder.is_dir()
+
+
 class HarnessDashboard:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -168,6 +172,12 @@ class HarnessDashboard:
         self.agent_text.set(agent)
         self.agent_box.configure(state="readonly")
         self._update_launch_state()
+        if not self.selected_folder.is_dir():
+            self.status_text.set("Folder missing. Reopen the project to refresh.")
+            messagebox.showwarning(
+                "Folder missing",
+                "This folder no longer exists. Reopen the project to refresh the tree.",
+            )
 
     def _on_agent_changed(self, _event: object = None) -> None:
         if self.project_root is None or self.selected_folder is None:
@@ -195,7 +205,12 @@ class HarnessDashboard:
         self._update_launch_state()
 
     def _update_launch_state(self) -> None:
-        state = "normal" if self.agent_text.get() in AGENT_COMMANDS else "disabled"
+        state = (
+            "normal"
+            if self.selected_folder is not None
+            and can_launch(self.agent_text.get(), self.selected_folder)
+            else "disabled"
+        )
         self.launch_button.configure(state=state)
 
     def _open_terminal(self) -> None:

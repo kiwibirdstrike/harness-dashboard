@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import assignment_key
+from app import assignment_key, can_launch
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
@@ -107,6 +107,15 @@ class AppPathTests(unittest.TestCase):
 
         self.assertEqual(assignment_key(root, root), ".")
         self.assertEqual(assignment_key(root, root / "src"), "src")
+
+    def test_launch_requires_known_agent_and_existing_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+
+            self.assertTrue(can_launch("Codex", folder))
+            self.assertFalse(can_launch("Unassigned", folder))
+
+        self.assertFalse(can_launch("Codex", folder))
 
 
 class BuildScriptTests(unittest.TestCase):
