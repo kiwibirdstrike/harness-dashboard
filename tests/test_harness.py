@@ -8,6 +8,7 @@ from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
+from harness.widgets import fallback_initial, tree_row_at_pointer
 from scripts.build import PROJECT_ROOT, build_command, build_environment
 
 
@@ -204,6 +205,27 @@ class AppPathTests(unittest.TestCase):
             self.assertFalse(can_launch(None, folder))
 
         self.assertFalse(can_launch("codex", folder))
+
+
+class FakeTree:
+    def winfo_rootx(self):
+        return 100
+
+    def winfo_rooty(self):
+        return 200
+
+    def identify_row(self, y):
+        return "row-3" if y == 25 else ""
+
+
+class WidgetHelperTests(unittest.TestCase):
+    def test_fallback_initial_uses_first_visible_character(self):
+        self.assertEqual(fallback_initial("  Claude"), "C")
+        self.assertEqual(fallback_initial(""), "?")
+
+    def test_tree_row_at_pointer_converts_screen_to_widget_coordinates(self):
+        self.assertEqual(tree_row_at_pointer(FakeTree(), 130, 225), "row-3")
+        self.assertEqual(tree_row_at_pointer(FakeTree(), 130, 260), "")
 
 
 class BuildScriptTests(unittest.TestCase):
