@@ -47,3 +47,5 @@ macOS에서는 `dist/HarnessDashboard.app`, Windows에서는 `dist/HarnessDashbo
 ## 배포 참고
 
 MVP 빌드는 코드 서명과 공증을 하지 않습니다. 신뢰하는 GitHub 저장소에서 받은 파일인지 확인한 뒤 운영체제의 보안 경고에서 직접 실행을 승인해야 합니다. 자동 업데이트와 설치 프로그램은 포함하지 않습니다.
+
+`v0.1.0` 같은 버전 태그를 GitHub에 푸시하면 macOS Apple Silicon과 Windows x64 빌드를 각각 만들고 같은 이름의 GitHub Release에 첨부합니다.
