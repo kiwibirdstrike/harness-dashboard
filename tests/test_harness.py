@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import assignment_key, can_launch
+from app import assignment_key, can_launch, resolve_agent_label
 from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
@@ -191,21 +191,28 @@ class LauncherTests(unittest.TestCase):
             build_launch_spec(Path("/tmp"), "codex", system="Linux")
 
 
-class AppPathTests(unittest.TestCase):
+class AppAgentTests(unittest.TestCase):
     def test_root_and_child_assignment_keys(self):
         root = Path("/project")
 
         self.assertEqual(assignment_key(root, root), ".")
         self.assertEqual(assignment_key(root, root / "src"), "src")
 
-    def test_launch_requires_known_agent_and_existing_folder(self):
+    def test_missing_agent_label_is_explicit(self):
+        agent = Agent("known", "My Codex", "codex", None, "#7C3AED")
+
+        self.assertEqual(resolve_agent_label("known", {"known": agent}), "My Codex")
+        self.assertEqual(resolve_agent_label("deleted", {"known": agent}), "Missing agent")
+
+    def test_launch_requires_resolved_agent_and_existing_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
+            agent = Agent("known", "My Codex", "codex", None, "#7C3AED")
 
-            self.assertTrue(can_launch("codex --local", folder))
-            self.assertFalse(can_launch(None, folder))
+            self.assertTrue(can_launch("known", {"known": agent}, folder))
+            self.assertFalse(can_launch("deleted", {"known": agent}, folder))
 
-        self.assertFalse(can_launch("codex", folder))
+        self.assertFalse(can_launch("known", {"known": agent}, folder))
 
 
 class FakeTree:

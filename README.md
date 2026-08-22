@@ -1,6 +1,6 @@
 # Harness Dashboard
 
-프로젝트 폴더를 작업공간 트리로 보고, 폴더마다 Codex·Claude·Gemini CLI를 배치해 해당 위치에서 터미널을 여는 데스크톱 앱입니다.
+프로젝트 폴더를 작업공간 트리로 보고, 내가 등록한 AI Agent CLI를 폴더마다 배치해 해당 위치에서 터미널을 여는 데스크톱 앱입니다.
 
 ## 현재 지원 상태
 
@@ -15,17 +15,20 @@ Python 3.10 이상과 Tkinter가 필요합니다. macOS에서는 [python.org](ht
 python3 app.py
 ```
 
-`Open Folder`로 프로젝트를 선택하고, 트리에서 폴더를 고른 뒤 Agent를 배치합니다. 배치 정보는 선택한 프로젝트의 `.harness.json`에 바로 저장됩니다.
+`Open Folder`로 프로젝트를 선택한 뒤 오른쪽 Agent Dock의 카드를 클릭하거나 폴더 위로 드래그해 배치합니다. 배치 정보는 선택한 프로젝트의 `.harness.json`에 바로 저장됩니다.
 
-## Agent CLI 준비
+## Agent 관리
 
-앱은 CLI를 설치하거나 로그인하지 않습니다. 사용할 명령이 터미널에서 먼저 실행돼야 합니다.
+`Manage` 또는 왼쪽 아래 설정 버튼에서 Agent를 직접 추가·수정·삭제할 수 있습니다.
 
-```bash
-codex
-claude
-gemini
-```
+- Name: Dock에 표시할 이름
+- Launch command: 터미널에서 실행할 명령과 옵션
+- Signature image: 선택 사항인 PNG 이미지
+- Accent: Agent 카드 구분 색상
+
+목록은 컴퓨터 전체에서 공유되며 macOS는 `~/Library/Application Support/HarnessDashboard/agents.json`, Windows는 `%APPDATA%\HarnessDashboard\agents.json`에 저장됩니다. 삭제된 Agent가 프로젝트에 배치돼 있으면 해당 폴더에 `Missing agent`가 표시되며, 다른 Agent로 다시 배치할 때까지 실행되지 않습니다.
+
+앱은 CLI 설치 여부나 구독 상태를 감지하지 않습니다. 등록한 실행 명령이 일반 터미널에서 먼저 동작하고 로그인이 완료돼 있어야 합니다.
 
 ## 개발 확인
 
