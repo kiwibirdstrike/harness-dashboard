@@ -6,6 +6,7 @@ from app import assignment_key
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
+from scripts.build import PROJECT_ROOT, build_command, build_environment
 
 
 class ScannerTests(unittest.TestCase):
@@ -106,6 +107,25 @@ class AppPathTests(unittest.TestCase):
 
         self.assertEqual(assignment_key(root, root), ".")
         self.assertEqual(assignment_key(root, root / "src"), "src")
+
+
+class BuildScriptTests(unittest.TestCase):
+    def test_macos_build_creates_windowed_onedir_app(self):
+        command = build_command(system="Darwin")
+
+        self.assertIn("--windowed", command)
+        self.assertIn("--onedir", command)
+        self.assertEqual(command[command.index("--name") + 1], "HarnessDashboard")
+        self.assertEqual(command[-1], "app.py")
+
+    def test_build_uses_project_local_pyinstaller_cache(self):
+        environment = build_environment({"PATH": "/usr/bin"})
+
+        self.assertEqual(environment["PATH"], "/usr/bin")
+        self.assertEqual(
+            environment["PYINSTALLER_CONFIG_DIR"],
+            str(PROJECT_ROOT / "build" / ".pyinstaller-config"),
+        )
 
 
 if __name__ == "__main__":
