@@ -8,6 +8,7 @@ from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
+from harness.settings_window import validate_form
 from harness.widgets import fallback_initial, tree_row_at_pointer
 from scripts.build import PROJECT_ROOT, build_command, build_environment
 
@@ -226,6 +227,20 @@ class WidgetHelperTests(unittest.TestCase):
     def test_tree_row_at_pointer_converts_screen_to_widget_coordinates(self):
         self.assertEqual(tree_row_at_pointer(FakeTree(), 130, 225), "row-3")
         self.assertEqual(tree_row_at_pointer(FakeTree(), 130, 260), "")
+
+
+class SettingsValidationTests(unittest.TestCase):
+    def test_form_normalizes_valid_values(self):
+        self.assertEqual(
+            validate_form("  My Codex  ", " codex --fast ", "#7C3AED"),
+            ("My Codex", "codex --fast", "#7C3AED"),
+        )
+
+    def test_form_rejects_missing_name_and_unknown_color(self):
+        with self.assertRaises(RegistryError):
+            validate_form(" ", "codex", "#7C3AED")
+        with self.assertRaises(RegistryError):
+            validate_form("Codex", "codex", "#000000")
 
 
 class BuildScriptTests(unittest.TestCase):
