@@ -6,9 +6,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from harness import AGENT_COMMANDS
-
-
 class LaunchError(RuntimeError):
     pass
 
@@ -21,11 +18,11 @@ class LaunchSpec:
 
 
 def build_launch_spec(
-    folder: Path, agent: str, system: str | None = None
+    folder: Path, command: str, system: str | None = None
 ) -> LaunchSpec:
-    command = AGENT_COMMANDS.get(agent)
-    if command is None:
-        raise LaunchError(f"Unknown agent: {agent}")
+    command = command.strip()
+    if not command or any(character in command for character in "\r\n\0"):
+        raise LaunchError("Launch command must be one line")
 
     system = system or platform.system()
     if system == "Darwin":
@@ -50,12 +47,12 @@ def build_launch_spec(
     raise LaunchError(f"Unsupported operating system: {system}")
 
 
-def launch_agent(folder: Path, agent: str) -> None:
+def launch_agent(folder: Path, command: str) -> None:
     folder = folder.expanduser().resolve()
     if not folder.is_dir():
         raise LaunchError(f"Folder no longer exists: {folder}")
 
-    spec = build_launch_spec(folder, agent)
+    spec = build_launch_spec(folder, command)
     try:
         subprocess.Popen(
             spec.argv,

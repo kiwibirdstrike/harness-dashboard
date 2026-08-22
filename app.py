@@ -18,8 +18,8 @@ def assignment_key(root: Path, folder: Path) -> str:
     return "." if relative == Path(".") else relative.as_posix()
 
 
-def can_launch(agent: str, folder: Path) -> bool:
-    return agent in AGENT_COMMANDS and folder.is_dir()
+def can_launch(command: str | None, folder: Path) -> bool:
+    return bool(command and command.strip()) and folder.is_dir()
 
 
 class HarnessDashboard:
@@ -208,7 +208,7 @@ class HarnessDashboard:
         state = (
             "normal"
             if self.selected_folder is not None
-            and can_launch(self.agent_text.get(), self.selected_folder)
+            and can_launch(AGENT_COMMANDS.get(self.agent_text.get()), self.selected_folder)
             else "disabled"
         )
         self.launch_button.configure(state=state)
@@ -217,7 +217,7 @@ class HarnessDashboard:
         if self.selected_folder is None:
             return
         try:
-            launch_agent(self.selected_folder, self.agent_text.get())
+            launch_agent(self.selected_folder, AGENT_COMMANDS[self.agent_text.get()])
         except LaunchError as error:
             messagebox.showerror("Cannot open terminal", str(error))
             return

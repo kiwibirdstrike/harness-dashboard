@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from app import assignment_key, can_launch
-from harness.agent_registry import AgentRegistry, RegistryError, app_data_dir
+from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import LaunchError, build_launch_spec
 from harness.scanner import scan_folders
@@ -49,21 +49,36 @@ class ConfigTests(unittest.TestCase):
     def test_assignments_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            expected = {"research": "Gemini", "src": "Codex"}
+            expected = {"research": "agent-gemini", "src": "agent-codex"}
 
             save_assignments(root, expected)
 
             self.assertEqual(load_assignments(root), expected)
+            self.assertIn('"version": 2', (root / ".harness.json").read_text(encoding="utf-8"))
 
-    def test_unknown_agents_are_ignored(self):
+    def test_version_one_names_migrate_to_ids_without_dropping_unknown_agents(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".harness.json").write_text(
                 '{"version": 1, "assignments": {"src": "Other", "docs": "Claude"}}',
                 encoding="utf-8",
             )
+            agents = [Agent("claude-id", "Claude", "claude", None, "#0EA5E9")]
 
-            self.assertEqual(load_assignments(root), {"docs": "Claude"})
+            self.assertEqual(
+                load_assignments(root, agents),
+                {"src": "Other", "docs": "claude-id"},
+            )
+
+    def test_version_two_preserves_missing_agent_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".harness.json").write_text(
+                '{"version": 2, "assignments": {"src": "deleted-agent-id"}}',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(load_assignments(root), {"src": "deleted-agent-id"})
 
     def test_invalid_json_is_not_replaced(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -152,7 +167,7 @@ class LauncherTests(unittest.TestCase):
     def test_macos_spec_quotes_shell_path_and_escapes_applescript(self):
         folder = Path('/tmp/Client\'s "Project"')
 
-        spec = build_launch_spec(folder, "Codex", system="Darwin")
+        spec = build_launch_spec(folder, "codex --profile local", system="Darwin")
 
         self.assertEqual(spec.argv[:2], ("osascript", "-e"))
         self.assertIn("codex", spec.argv[2])
@@ -162,16 +177,16 @@ class LauncherTests(unittest.TestCase):
     def test_windows_spec_uses_working_directory_without_path_concatenation(self):
         folder = Path(r"C:\Users\A Person\Project")
 
-        spec = build_launch_spec(folder, "Claude", system="Windows")
+        spec = build_launch_spec(folder, "claude --resume", system="Windows")
 
-        self.assertEqual(spec.argv, ("cmd.exe", "/k", "claude"))
+        self.assertEqual(spec.argv, ("cmd.exe", "/k", "claude --resume"))
         self.assertEqual(spec.cwd, folder)
 
-    def test_unknown_agent_and_platform_are_rejected(self):
+    def test_empty_command_and_unknown_platform_are_rejected(self):
         with self.assertRaises(LaunchError):
-            build_launch_spec(Path("/tmp"), "Other", system="Darwin")
+            build_launch_spec(Path("/tmp"), "", system="Darwin")
         with self.assertRaises(LaunchError):
-            build_launch_spec(Path("/tmp"), "Codex", system="Linux")
+            build_launch_spec(Path("/tmp"), "codex", system="Linux")
 
 
 class AppPathTests(unittest.TestCase):
@@ -185,10 +200,10 @@ class AppPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
 
-            self.assertTrue(can_launch("Codex", folder))
-            self.assertFalse(can_launch("Unassigned", folder))
+            self.assertTrue(can_launch("codex --local", folder))
+            self.assertFalse(can_launch(None, folder))
 
-        self.assertFalse(can_launch("Codex", folder))
+        self.assertFalse(can_launch("codex", folder))
 
 
 class BuildScriptTests(unittest.TestCase):

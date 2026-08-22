@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
-from harness import AGENT_COMMANDS
+from harness.agent_registry import Agent
 
 
 CONFIG_NAME = ".harness.json"
@@ -16,7 +16,7 @@ class ConfigError(ValueError):
     pass
 
 
-def load_assignments(root: Path) -> dict[str, str]:
+def load_assignments(root: Path, agents: list[Agent] | None = None) -> dict[str, str]:
     config_path = root / CONFIG_NAME
     if not config_path.exists():
         return {}
@@ -26,29 +26,36 @@ def load_assignments(root: Path) -> dict[str, str]:
     except (OSError, json.JSONDecodeError) as error:
         raise ConfigError(f"Cannot read {config_path}: {error}") from error
 
-    if not isinstance(data, dict) or data.get("version") != 1:
+    if not isinstance(data, dict) or data.get("version") not in (1, 2):
         raise ConfigError(f"Unsupported configuration in {config_path}")
 
     assignments = data.get("assignments")
     if not isinstance(assignments, dict):
         raise ConfigError(f"Invalid assignments in {config_path}")
 
-    return {
+    valid = {
         key: agent
         for key, agent in assignments.items()
         if isinstance(key, str)
         and _valid_key(key)
         and isinstance(agent, str)
-        and agent in AGENT_COMMANDS
+        and _valid_agent_id(agent)
     }
+    if data["version"] == 1 and agents:
+        ids_by_name = {agent.name: agent.id for agent in agents}
+        return {key: ids_by_name.get(agent, agent) for key, agent in valid.items()}
+    return valid
 
 
 def save_assignments(root: Path, assignments: Mapping[str, str]) -> None:
     root = root.expanduser().resolve()
     if not root.is_dir():
         raise ConfigError(f"Not a directory: {root}")
-    if any(not _valid_key(key) or agent not in AGENT_COMMANDS for key, agent in assignments.items()):
-        raise ConfigError("Assignments must use project-relative paths and known agents")
+    if any(
+        not _valid_key(key) or not isinstance(agent, str) or not _valid_agent_id(agent)
+        for key, agent in assignments.items()
+    ):
+        raise ConfigError("Assignments must use project-relative paths and agent IDs")
 
     config_path = root / CONFIG_NAME
     temporary_path: Path | None = None
@@ -63,7 +70,7 @@ def save_assignments(root: Path, assignments: Mapping[str, str]) -> None:
         ) as temporary:
             temporary_path = Path(temporary.name)
             json.dump(
-                {"version": 1, "assignments": dict(assignments)},
+                {"version": 2, "assignments": dict(assignments)},
                 temporary,
                 indent=2,
                 sort_keys=True,
@@ -84,3 +91,7 @@ def _valid_key(key: str) -> bool:
         return False
     path = PurePosixPath(key)
     return not path.is_absolute() and ".." not in path.parts
+
+
+def _valid_agent_id(agent_id: str) -> bool:
+    return bool(agent_id.strip()) and not any(character in agent_id for character in "\r\n\0")
