@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import shutil
+import sys
 import tempfile
 import uuid
 from dataclasses import asdict, dataclass
@@ -11,6 +12,11 @@ from pathlib import Path
 
 
 ACCENT_COLORS = ("#7C3AED", "#0EA5E9", "#D97706", "#16A34A", "#DC2626", "#DB2777")
+STARTER_AGENTS = {
+    "Codex": ("codex", "#7C3AED", "codex.png", "코딩, 디버깅, 테스트와 리팩터링에 적합"),
+    "Claude": ("claude", "#D97706", "claude.png", "기획, 긴 문서 정리, 코드 리뷰와 복잡한 추론에 적합"),
+    "Gemini": ("gemini", "#0EA5E9", "gemini.png", "자료 조사, 멀티모달 분석과 Google 도구 작업에 적합"),
+}
 
 
 class RegistryError(ValueError):
@@ -24,6 +30,7 @@ class Agent:
     command: str
     image: str | None
     color: str
+    description: str = ""
 
 
 def app_data_dir(
@@ -51,23 +58,20 @@ class AgentRegistry:
 
     def load(self) -> list[Agent]:
         if not self.path.exists():
-            agents = [
-                Agent(str(uuid.uuid4()), name, command, None, color)
-                for name, command, color in (
-                    ("Codex", "codex", ACCENT_COLORS[0]),
-                    ("Claude", "claude", ACCENT_COLORS[1]),
-                    ("Gemini", "gemini", ACCENT_COLORS[2]),
-                )
-            ]
+            agents = [self._starter_agent(name) for name in STARTER_AGENTS]
             self._save(agents)
             return agents
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or data.get("version") != 1:
+            if not isinstance(data, dict) or data.get("version") not in (1, 2):
                 raise ValueError("unsupported version")
-            return [Agent(**item) for item in data["agents"]]
+            agents = [Agent(**item) for item in data["agents"]]
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise RegistryError(f"Cannot read {self.path}: {error}") from error
+        if data["version"] == 1:
+            agents = [self._upgrade_agent(agent) for agent in agents]
+            self._save(agents)
+        return agents
 
     def delete(self, agent_id: str) -> None:
         agents = self.load()
@@ -79,13 +83,18 @@ class AgentRegistry:
         self._delete_image(removed.image)
 
     def add(
-        self, name: str, command: str, image: Path | None, color: str
+        self,
+        name: str,
+        command: str,
+        image: Path | None,
+        color: str,
+        description: str = "",
     ) -> Agent:
-        name, command = self._validate_fields(name, command, color)
+        name, command, description = self._validate_fields(name, command, color, description)
         agent_id = str(uuid.uuid4())
         existing = self.load()
         copied_image, staged = self._stage_image(agent_id, image)
-        agent = Agent(agent_id, name, command, copied_image, color)
+        agent = Agent(agent_id, name, command, copied_image, color, description)
         saved = False
         try:
             self._save([*existing, agent])
@@ -107,14 +116,15 @@ class AgentRegistry:
         command: str,
         image: Path | None,
         color: str,
+        description: str = "",
     ) -> Agent:
-        name, command = self._validate_fields(name, command, color)
+        name, command, description = self._validate_fields(name, command, color, description)
         agents = self.load()
         previous = next((agent for agent in agents if agent.id == agent_id), None)
         if previous is None:
             raise RegistryError("Agent not found")
         copied_image, staged = self._stage_image(agent_id, image)
-        updated = Agent(agent_id, name, command, copied_image, color)
+        updated = Agent(agent_id, name, command, copied_image, color, description)
         saved = False
         try:
             self._save([updated if agent.id == agent_id else agent for agent in agents])
@@ -132,16 +142,57 @@ class AgentRegistry:
         return updated
 
     @staticmethod
-    def _validate_fields(name: str, command: str, color: str) -> tuple[str, str]:
+    def _validate_fields(
+        name: str, command: str, color: str, description: str = ""
+    ) -> tuple[str, str, str]:
         name = name.strip()
         command = command.strip()
+        description = description.strip()
         if not name or any(character in name for character in "\r\n\0"):
             raise RegistryError("Agent name is required")
         if not command or any(character in command for character in "\r\n\0"):
             raise RegistryError("Launch command must be one line")
         if color not in ACCENT_COLORS:
             raise RegistryError("Choose a supported accent color")
-        return name, command
+        if any(character in description for character in "\r\n\0"):
+            raise RegistryError("Description must be one line")
+        return name, command, description
+
+    def _starter_agent(self, name: str) -> Agent:
+        command, color, _asset, description = STARTER_AGENTS[name]
+        agent_id = str(uuid.uuid4())
+        image = self._copy_starter_icon(agent_id, name)
+        return Agent(agent_id, name, command, image, color, description)
+
+    def _upgrade_agent(self, agent: Agent) -> Agent:
+        starter = STARTER_AGENTS.get(agent.name)
+        if starter is None:
+            return agent
+        _command, _color, _asset, description = starter
+        image = agent.image or self._copy_starter_icon(agent.id, agent.name)
+        return Agent(
+            agent.id,
+            agent.name,
+            agent.command,
+            image,
+            agent.color,
+            agent.description or description,
+        )
+
+    def _copy_starter_icon(self, agent_id: str, name: str) -> str | None:
+        asset_name = STARTER_AGENTS[name][2]
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+        source = base / "assets" / "default_agents" / asset_name
+        if not source.is_file():
+            return None
+        try:
+            images = self.root / "images"
+            images.mkdir(parents=True, exist_ok=True)
+            destination = images / f"{agent_id}.png"
+            shutil.copyfile(source, destination)
+            return destination.relative_to(self.root).as_posix()
+        except OSError as error:
+            raise RegistryError(f"Cannot copy starter icon: {error}") from error
 
     def _stage_image(
         self, agent_id: str, source: Path | None
@@ -196,7 +247,7 @@ class AgentRegistry:
             ) as temporary:
                 temporary_path = Path(temporary.name)
                 json.dump(
-                    {"version": 1, "agents": [asdict(agent) for agent in agents]},
+                    {"version": 2, "agents": [asdict(agent) for agent in agents]},
                     temporary,
                     indent=2,
                 )

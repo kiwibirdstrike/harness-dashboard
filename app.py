@@ -7,20 +7,20 @@ from tkinter import filedialog, messagebox, ttk
 
 from harness.agent_registry import Agent, AgentRegistry, RegistryError
 from harness.config import ConfigError, load_assignments, save_assignments
-from harness.launcher import LaunchError, launch_agent
+from harness.launcher import LaunchError, launch_agent, open_folder as reveal_folder
 from harness.scanner import FolderNode, scan_folders
 from harness.settings_window import AgentSettingsWindow
 from harness.widgets import AgentCard, AgentDragController
 
 
-BG = "#08101F"
-PANEL = "#10192C"
-PANEL_ALT = "#131E33"
-BORDER = "#24314A"
-TEXT = "#F5F7FB"
-MUTED = "#8FA1BC"
-ACCENT = "#6D5DFB"
-DANGER = "#EF6B73"
+BG = "#F4F7FB"
+PANEL = "#FFFFFF"
+PANEL_ALT = "#F8FAFD"
+BORDER = "#DDE5F0"
+TEXT = "#172033"
+MUTED = "#718096"
+ACCENT = "#6957E8"
+DANGER = "#D84B5B"
 
 
 def assignment_key(root: Path, folder: Path) -> str:
@@ -31,6 +31,12 @@ def assignment_key(root: Path, folder: Path) -> str:
 def resolve_agent_label(agent_id: str, agents: Mapping[str, Agent]) -> str:
     agent = agents.get(agent_id)
     return agent.name if agent else "Missing agent"
+
+
+def tree_agent_label(agent_id: str | None, agents: Mapping[str, Agent]) -> str:
+    if not agent_id:
+        return "Not assigned"
+    return f"●  {resolve_agent_label(agent_id, agents)}"
 
 
 def can_launch(agent_id: str | None, agents: Mapping[str, Agent], folder: Path) -> bool:
@@ -60,25 +66,32 @@ class HarnessDashboard:
         style = ttk.Style(self.root)
         style.theme_use("clam")
         style.configure(
-            "Treeview", background=PANEL, fieldbackground=PANEL, foreground="#DCE5F3",
-            borderwidth=0, rowheight=34, font=("TkDefaultFont", 10)
+            "Treeview", background=PANEL, fieldbackground=PANEL, foreground=TEXT,
+            borderwidth=0, rowheight=38, font=("TkDefaultFont", 10)
         )
         style.configure(
-            "Treeview.Heading", background=PANEL_ALT, foreground=MUTED, borderwidth=0,
-            relief="flat", font=("TkDefaultFont", 9, "bold")
+            "Treeview.Heading", background="#EEF3F9", foreground="#52627A", borderwidth=0,
+            relief="flat", padding=(10, 9), font=("TkDefaultFont", 9, "bold")
         )
-        style.map("Treeview", background=[("selected", "#35446A")])
+        style.map(
+            "Treeview",
+            background=[("selected", "#EBE8FF")],
+            foreground=[("selected", TEXT)],
+        )
         style.configure(
             "Action.TButton", background=ACCENT, foreground="#FFFFFF", borderwidth=0,
             padding=(18, 10), font=("TkDefaultFont", 10, "bold")
         )
         style.map("Action.TButton", background=[("active", "#8073FF"), ("disabled", "#29344C")])
         style.configure(
-            "Ghost.TButton", background=PANEL_ALT, foreground="#DCE5F3",
+            "Ghost.TButton", background=PANEL, foreground="#46546A",
             bordercolor=BORDER, padding=(14, 9)
         )
-        style.map("Ghost.TButton", background=[("active", "#1C2942")])
-        style.configure("Vertical.TScrollbar", background=PANEL_ALT, troughcolor=PANEL)
+        style.map("Ghost.TButton", background=[("active", "#EDF1F7")])
+        style.configure(
+            "Slim.Vertical.TScrollbar", background="#C8D2E1", troughcolor=BG,
+            borderwidth=0, arrowsize=0, width=8
+        )
 
     def _build_window(self) -> None:
         self.root.title("Harness Dashboard")
@@ -86,39 +99,18 @@ class HarnessDashboard:
         self.root.minsize(1100, 680)
         self.root.configure(background=BG)
         self.root.option_add("*tearOff", False)
-        self.root.columnconfigure(1, weight=1)
+        self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        self._build_nav()
         self._build_workspace()
         self._build_dock()
 
-    def _build_nav(self) -> None:
-        nav = tk.Frame(self.root, width=68, background="#060C17")
-        nav.grid(row=0, column=0, sticky="ns")
-        nav.grid_propagate(False)
-        nav.rowconfigure(3, weight=1)
-        tk.Label(
-            nav, text="H", width=2, background=ACCENT, foreground="white",
-            font=("TkDefaultFont", 17, "bold")
-        ).grid(row=0, column=0, padx=14, pady=(20, 28))
-        self._nav_button(nav, "⌂", self.open_folder).grid(row=1, column=0, pady=4)
-        self._nav_button(nav, "⚙", self.open_settings).grid(row=4, column=0, pady=(4, 18))
-
-    @staticmethod
-    def _nav_button(parent: tk.Misc, text: str, command: object) -> tk.Button:
-        return tk.Button(
-            parent, text=text, command=command, width=3, background="#111A2B",
-            activebackground="#263451", foreground="#B8C5D9", activeforeground="#FFFFFF",
-            borderwidth=0, relief="flat", cursor="hand2", font=("TkDefaultFont", 16)
-        )
-
     def _build_workspace(self) -> None:
         workspace = tk.Frame(self.root, background=BG, padx=26, pady=22)
-        workspace.grid(row=0, column=1, sticky="nsew")
+        workspace.grid(row=0, column=0, sticky="nsew")
         workspace.columnconfigure(0, weight=1)
         workspace.rowconfigure(2, weight=1)
         tk.Label(
-            workspace, text="HARNESS COMMAND CENTER", background=BG, foreground="#7C8EAA",
+            workspace, text="HARNESS DASHBOARD", background=BG, foreground="#7A8AA2",
             font=("TkDefaultFont", 9, "bold")
         ).grid(row=0, column=0, sticky="w")
         header = tk.Frame(workspace, background=BG)
@@ -128,7 +120,7 @@ class HarnessDashboard:
             header, textvariable=self.project_name, background=BG, foreground=TEXT,
             font=("TkDefaultFont", 23, "bold")
         ).grid(row=0, column=0, sticky="w")
-        ttk.Button(header, text="Open Folder", style="Ghost.TButton", command=self.open_folder).grid(
+        ttk.Button(header, text="⌂  Set Root", style="Ghost.TButton", command=self.choose_root).grid(
             row=0, column=1, padx=(16, 0)
         )
         tk.Label(
@@ -142,21 +134,37 @@ class HarnessDashboard:
         tree_panel.columnconfigure(0, weight=1)
         tree_panel.rowconfigure(1, weight=1)
         tk.Label(
-            tree_panel, text="PROJECT WORKSPACES", background=PANEL, foreground="#A8B6CA",
+            tree_panel, text="PROJECT WORKSPACES", background=PANEL, foreground="#52627A",
             font=("TkDefaultFont", 10, "bold"), padx=18, pady=14
         ).grid(row=0, column=0, columnspan=2, sticky="w")
         self.tree = ttk.Treeview(
             tree_panel, columns=("agent",), show="tree headings", selectmode="browse"
         )
-        self.tree.heading("#0", text="Folder")
-        self.tree.heading("agent", text="Assigned agent")
-        self.tree.column("#0", width=430, minwidth=260)
-        self.tree.column("agent", width=160, minwidth=130, anchor=tk.W)
-        scrollbar = ttk.Scrollbar(tree_panel, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.heading("#0", text="FOLDER", anchor=tk.W)
+        self.tree.heading("agent", text="ASSIGNED AGENT", anchor=tk.W)
+        self.tree.column("#0", width=430, minwidth=260, stretch=True)
+        self.tree.column("agent", width=210, minwidth=210, stretch=False, anchor=tk.W)
+        scrollbar = ttk.Scrollbar(
+            tree_panel,
+            orient=tk.VERTICAL,
+            style="Slim.Vertical.TScrollbar",
+            command=self.tree.yview,
+        )
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.grid(row=1, column=0, sticky="nsew", padx=(12, 0), pady=(0, 12))
         scrollbar.grid(row=1, column=1, sticky="ns", padx=(0, 8), pady=(0, 12))
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        divider = tk.Frame(tree_panel, background=BORDER, width=1)
+        self.tree.bind(
+            "<Configure>",
+            lambda _event: divider.place(
+                x=self.tree.winfo_x() + self.tree.winfo_width() - 211,
+                y=self.tree.winfo_y(),
+                width=1,
+                height=self.tree.winfo_height(),
+            ),
+            add="+",
+        )
         self.tree.tag_configure("missing-agent", foreground=DANGER)
 
         action = tk.Frame(
@@ -171,18 +179,26 @@ class HarnessDashboard:
         ).grid(row=0, column=0, sticky="ew")
         tk.Label(
             action, textvariable=self.assigned_text, background=PANEL_ALT,
-            foreground=MUTED, anchor="w"
+            foreground=MUTED, anchor="w", justify=tk.LEFT, wraplength=390
         ).grid(row=1, column=0, sticky="ew", pady=(5, 0))
         self.unassign_button = ttk.Button(
             action, text="Remove Agent", style="Ghost.TButton",
             command=self._unassign_selected, state="disabled"
         )
         self.unassign_button.grid(row=0, column=1, rowspan=2, padx=(12, 8))
+        self.folder_button = ttk.Button(
+            action,
+            text="Open Folder",
+            style="Ghost.TButton",
+            command=self._open_selected_folder,
+            state="disabled",
+        )
+        self.folder_button.grid(row=0, column=2, rowspan=2, padx=(0, 8))
         self.launch_button = ttk.Button(
             action, text="Open Terminal", style="Action.TButton",
             command=self._open_terminal, state="disabled"
         )
-        self.launch_button.grid(row=0, column=2, rowspan=2)
+        self.launch_button.grid(row=0, column=3, rowspan=2)
         tk.Label(
             workspace, textvariable=self.status_text, background=BG,
             foreground="#71839F", anchor="w"
@@ -191,35 +207,40 @@ class HarnessDashboard:
 
     def _build_dock(self) -> None:
         dock = tk.Frame(
-            self.root, width=270, background="#0D1628",
+            self.root, width=292, background="#F9FBFE",
             highlightbackground=BORDER, highlightthickness=1
         )
-        dock.grid(row=0, column=2, sticky="ns")
+        dock.grid(row=0, column=1, sticky="ns")
         dock.grid_propagate(False)
         dock.columnconfigure(0, weight=1)
         dock.rowconfigure(2, weight=1)
-        head = tk.Frame(dock, background="#0D1628", padx=18, pady=20)
+        head = tk.Frame(dock, background="#F9FBFE", padx=18, pady=20)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(0, weight=1)
         tk.Label(
-            head, text="AGENT DOCK", background="#0D1628", foreground=TEXT,
+            head, text="AGENT DOCK", background="#F9FBFE", foreground=TEXT,
             font=("TkDefaultFont", 13, "bold")
         ).grid(row=0, column=0, sticky="w")
         ttk.Button(head, text="Manage", style="Ghost.TButton", command=self.open_settings).grid(
             row=0, column=1
         )
         tk.Label(
-            dock, textvariable=self.agent_count_text, background="#0D1628",
+            dock, textvariable=self.agent_count_text, background="#F9FBFE",
             foreground=MUTED, anchor="w", padx=18
         ).grid(row=1, column=0, sticky="ew", pady=(0, 12))
         self.dock_canvas = tk.Canvas(
-            dock, background="#0D1628", borderwidth=0, highlightthickness=0
+            dock, background="#F9FBFE", borderwidth=0, highlightthickness=0
         )
-        dock_scroll = ttk.Scrollbar(dock, orient=tk.VERTICAL, command=self.dock_canvas.yview)
+        dock_scroll = ttk.Scrollbar(
+            dock,
+            orient=tk.VERTICAL,
+            style="Slim.Vertical.TScrollbar",
+            command=self.dock_canvas.yview,
+        )
         self.dock_canvas.configure(yscrollcommand=dock_scroll.set)
         self.dock_canvas.grid(row=2, column=0, sticky="nsew", padx=(14, 0), pady=(0, 16))
         dock_scroll.grid(row=2, column=1, sticky="ns", padx=(0, 6), pady=(0, 16))
-        self.cards_frame = tk.Frame(self.dock_canvas, background="#0D1628")
+        self.cards_frame = tk.Frame(self.dock_canvas, background="#F9FBFE")
         self.cards_window = self.dock_canvas.create_window(
             (0, 0), window=self.cards_frame, anchor="nw"
         )
@@ -231,9 +252,11 @@ class HarnessDashboard:
             "<Configure>",
             lambda event: self.dock_canvas.itemconfigure(self.cards_window, width=event.width),
         )
+        self.dock_canvas.bind("<MouseWheel>", self._scroll_dock)
+        self.cards_frame.bind("<MouseWheel>", self._scroll_dock)
         tk.Label(
-            dock, text="Click to assign • Drag onto a folder", background="#0D1628",
-            foreground="#687A96", padx=18, pady=12
+            dock, text="Click to assign • Drag onto a folder", background="#F9FBFE",
+            foreground="#8190A6", padx=18, pady=12
         ).grid(row=3, column=0, columnspan=2, sticky="ew")
 
     def _reload_agents(self, *, show_error: bool = False) -> None:
@@ -257,18 +280,19 @@ class HarnessDashboard:
         if not self.agents:
             tk.Label(
                 self.cards_frame, text="No agents yet.\nOpen Manage to add one.",
-                background="#0D1628", foreground=MUTED, justify=tk.LEFT
+                background="#F9FBFE", foreground=MUTED, justify=tk.LEFT
             ).pack(fill="x", padx=6, pady=12)
             return
         for agent in self.agents.values():
             card = AgentCard(self.cards_frame, agent, self.registry.root)
             card.pack(fill="x", padx=4, pady=(0, 10))
+            card.bind("<MouseWheel>", self._scroll_dock, add="+")
             self.drag_controller.attach(card, self._assign_selected)
 
     def open_settings(self) -> None:
         AgentSettingsWindow(self.root, self.registry, self._reload_agents)
 
-    def open_folder(self) -> None:
+    def choose_root(self) -> None:
         chosen = filedialog.askdirectory(title="Choose a project folder")
         if not chosen:
             return
@@ -302,8 +326,8 @@ class HarnessDashboard:
         agent_id = self.assignments.get(key)
         tags = ("missing-agent",) if agent_id and agent_id not in self.agents else ()
         item = self.tree.insert(
-            parent, tk.END, text=f"  {node.path.name or str(node.path)}",
-            values=(resolve_agent_label(agent_id, self.agents) if agent_id else "—",),
+            parent, tk.END, text=f"  ▸  {node.path.name or str(node.path)}",
+            values=(tree_agent_label(agent_id, self.agents),),
             tags=tags, open=open_node
         )
         self.item_paths[item] = node.path
@@ -325,14 +349,18 @@ class HarnessDashboard:
             self.folder_text.set("Select a folder from the workspace tree")
             self.assigned_text.set("No agent assigned")
             self.launch_button.configure(state="disabled")
+            self.folder_button.configure(state="disabled")
             self.unassign_button.configure(state="disabled")
             return
         key = assignment_key(self.project_root, self.selected_folder)
         agent_id = self.assignments.get(key)
         self.folder_text.set(self.selected_folder.name or str(self.selected_folder))
         self.assigned_text.set(
-            f"Assigned to {resolve_agent_label(agent_id, self.agents)}"
+            self._selected_agent_summary(agent_id)
             if agent_id else "No agent assigned — choose one from the dock"
+        )
+        self.folder_button.configure(
+            state="normal" if self.selected_folder.is_dir() else "disabled"
         )
         self.launch_button.configure(
             state="normal" if can_launch(agent_id, self.agents, self.selected_folder) else "disabled"
@@ -391,8 +419,7 @@ class HarnessDashboard:
             return False
 
     def _set_item_agent(self, item: str, agent_id: str | None) -> None:
-        label = resolve_agent_label(agent_id, self.agents) if agent_id else "—"
-        self.tree.set(item, "agent", label)
+        self.tree.set(item, "agent", tree_agent_label(agent_id, self.agents))
         tags = ("missing-agent",) if agent_id and agent_id not in self.agents else ()
         self.tree.item(item, tags=tags)
 
@@ -416,6 +443,26 @@ class HarnessDashboard:
             messagebox.showerror("Cannot open terminal", str(error), parent=self.root)
             return
         self.status_text.set(f"Opened {agent.name} in {self.selected_folder.name}")
+
+    def _open_selected_folder(self) -> None:
+        if self.selected_folder is None:
+            return
+        try:
+            reveal_folder(self.selected_folder)
+        except LaunchError as error:
+            messagebox.showerror("Cannot open folder", str(error), parent=self.root)
+            return
+        self.status_text.set(f"Opened folder: {self.selected_folder.name}")
+
+    def _selected_agent_summary(self, agent_id: str) -> str:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            return "Assigned to Missing agent"
+        description = f" — {agent.description}" if agent.description else ""
+        return f"Assigned to {agent.name}{description}"
+
+    def _scroll_dock(self, event: tk.Event) -> None:
+        self.dock_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
 
 def main() -> None:

@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from app import assignment_key, can_launch, resolve_agent_label
+from app import assignment_key, can_launch, resolve_agent_label, tree_agent_label
 from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
 from harness.config import ConfigError, load_assignments, save_assignments
-from harness.launcher import LaunchError, build_launch_spec
+from harness.launcher import LaunchError, build_launch_spec, build_open_folder_spec
 from harness.scanner import scan_folders
 from harness.settings_window import validate_form
 from harness.widgets import fallback_initial, tree_row_at_pointer
@@ -120,8 +120,24 @@ class AgentRegistryTests(unittest.TestCase):
             agents = registry.load()
 
             self.assertEqual([agent.name for agent in agents], ["Codex", "Claude", "Gemini"])
+            self.assertTrue(all(agent.description for agent in agents))
+            self.assertTrue(all(agent.image and (registry.root / agent.image).is_file() for agent in agents))
             registry.delete(agents[0].id)
             self.assertEqual([agent.name for agent in registry.load()], ["Claude", "Gemini"])
+
+    def test_version_one_registry_adds_starter_descriptions_and_icons(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agents.json").write_text(
+                '{"version": 1, "agents": [{"id": "codex-id", "name": "Codex", '
+                '"command": "codex", "image": null, "color": "#7C3AED"}]}',
+                encoding="utf-8",
+            )
+
+            agent = AgentRegistry(root).load()[0]
+
+            self.assertIn("코딩", agent.description)
+            self.assertTrue(agent.image and (root / agent.image).is_file())
 
     def test_invalid_json_is_not_replaced(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -132,6 +148,15 @@ class AgentRegistryTests(unittest.TestCase):
                 AgentRegistry(Path(tmp)).load()
 
             self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
+
+    def test_starter_icon_copy_failure_is_reported_as_registry_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch(
+                "harness.agent_registry.shutil.copyfile",
+                side_effect=OSError("disk unavailable"),
+            ):
+                with self.assertRaises(RegistryError):
+                    AgentRegistry(Path(tmp)).load()
 
     def test_add_update_and_delete_own_the_agent_image(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -210,6 +235,15 @@ class LauncherTests(unittest.TestCase):
         with self.assertRaises(LaunchError):
             build_launch_spec(Path("/tmp"), "codex", system="Linux")
 
+    def test_open_folder_uses_native_file_manager(self):
+        folder = Path("/tmp/Project")
+
+        self.assertEqual(build_open_folder_spec(folder, system="Darwin").argv, ("open", str(folder)))
+        self.assertEqual(
+            build_open_folder_spec(folder, system="Windows").argv,
+            ("explorer.exe", str(folder)),
+        )
+
 
 class AppAgentTests(unittest.TestCase):
     def test_root_and_child_assignment_keys(self):
@@ -223,6 +257,8 @@ class AppAgentTests(unittest.TestCase):
 
         self.assertEqual(resolve_agent_label("known", {"known": agent}), "My Codex")
         self.assertEqual(resolve_agent_label("deleted", {"known": agent}), "Missing agent")
+        self.assertEqual(tree_agent_label("known", {"known": agent}), "●  My Codex")
+        self.assertEqual(tree_agent_label(None, {"known": agent}), "Not assigned")
 
     def test_launch_requires_resolved_agent_and_existing_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -284,6 +320,10 @@ class BuildScriptTests(unittest.TestCase):
         self.assertIn("--windowed", command)
         self.assertIn("--onedir", command)
         self.assertEqual(command[command.index("--name") + 1], "HarnessDashboard")
+        self.assertEqual(
+            command[command.index("--add-data") + 1],
+            f"{PROJECT_ROOT / 'assets'}:assets",
+        )
         self.assertEqual(command[-1], "app.py")
 
     def test_build_uses_project_local_pyinstaller_cache(self):
@@ -293,6 +333,14 @@ class BuildScriptTests(unittest.TestCase):
         self.assertEqual(
             environment["PYINSTALLER_CONFIG_DIR"],
             str(PROJECT_ROOT / "build" / ".pyinstaller-config"),
+        )
+
+    def test_windows_build_uses_the_native_add_data_separator(self):
+        command = build_command(system="Windows")
+
+        self.assertEqual(
+            command[command.index("--add-data") + 1],
+            f"{PROJECT_ROOT / 'assets'};assets",
         )
 
 

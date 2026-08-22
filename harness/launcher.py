@@ -47,6 +47,15 @@ def build_launch_spec(
     raise LaunchError(f"Unsupported operating system: {system}")
 
 
+def build_open_folder_spec(folder: Path, system: str | None = None) -> LaunchSpec:
+    system = system or platform.system()
+    if system == "Darwin":
+        return LaunchSpec(("open", str(folder)))
+    if system == "Windows":
+        return LaunchSpec(("explorer.exe", str(folder)))
+    raise LaunchError(f"Unsupported operating system: {system}")
+
+
 def launch_agent(folder: Path, command: str) -> None:
     folder = folder.expanduser().resolve()
     if not folder.is_dir():
@@ -61,3 +70,14 @@ def launch_agent(folder: Path, command: str) -> None:
         )
     except OSError as error:
         raise LaunchError(f"Could not open terminal: {error}") from error
+
+
+def open_folder(folder: Path) -> None:
+    folder = folder.expanduser().resolve()
+    if not folder.is_dir():
+        raise LaunchError(f"Folder no longer exists: {folder}")
+    spec = build_open_folder_spec(folder)
+    try:
+        subprocess.Popen(spec.argv)
+    except OSError as error:
+        raise LaunchError(f"Could not open folder: {error}") from error

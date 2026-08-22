@@ -15,6 +15,7 @@ def build_command(system: str | None = None) -> list[str]:
     system = system or platform.system()
     if system not in {"Darwin", "Windows"}:
         raise RuntimeError(f"Unsupported build platform: {system}")
+    separator = ";" if system == "Windows" else ":"
     return [
         sys.executable,
         "-m",
@@ -23,6 +24,8 @@ def build_command(system: str | None = None) -> list[str]:
         "--clean",
         "--windowed",
         "--onedir",
+        "--add-data",
+        f"{PROJECT_ROOT / 'assets'}{separator}assets",
         "--name",
         "HarnessDashboard",
         "app.py",

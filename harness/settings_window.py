@@ -39,13 +39,14 @@ class AgentSettingsWindow(tk.Toplevel):
 
         self.name_text = tk.StringVar()
         self.command_text = tk.StringVar()
+        self.description_text = tk.StringVar()
         self.color_text = tk.StringVar(value=ACCENT_COLORS[0])
         self.image_text = tk.StringVar(value="No signature image")
 
         self.title("Manage Agents")
-        self.geometry("760x500")
-        self.minsize(680, 440)
-        self.configure(background="#0B1120")
+        self.geometry("780x550")
+        self.minsize(700, 500)
+        self.configure(background="#F4F7FB")
         self.transient(parent)
         self.grab_set()
         self._build()
@@ -57,21 +58,21 @@ class AgentSettingsWindow(tk.Toplevel):
         tk.Label(
             self,
             text="Agent Registry",
-            background="#0B1120",
-            foreground="#F8FAFC",
+            background="#F4F7FB",
+            foreground="#172033",
             font=("TkDefaultFont", 20, "bold"),
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=24, pady=(22, 16))
 
-        left = tk.Frame(self, background="#111A2E", padx=14, pady=14)
+        left = tk.Frame(self, background="#FFFFFF", padx=14, pady=14)
         left.grid(row=1, column=0, sticky="nsew", padx=(24, 10), pady=(0, 24))
         left.rowconfigure(0, weight=1)
         self.agent_list = tk.Listbox(
             left,
             width=24,
-            background="#111A2E",
-            foreground="#DCE6F5",
-            selectbackground="#4F46E5",
-            selectforeground="#FFFFFF",
+            background="#FFFFFF",
+            foreground="#344158",
+            selectbackground="#EBE8FF",
+            selectforeground="#172033",
             borderwidth=0,
             highlightthickness=0,
             activestyle="none",
@@ -83,50 +84,53 @@ class AgentSettingsWindow(tk.Toplevel):
             row=1, column=0, sticky="ew", pady=(12, 0)
         )
 
-        form = tk.Frame(self, background="#111A2E", padx=22, pady=18)
+        form = tk.Frame(self, background="#FFFFFF", padx=22, pady=18)
         form.grid(row=1, column=1, sticky="nsew", padx=(0, 24), pady=(0, 24))
         form.columnconfigure(1, weight=1)
-        for row, label in enumerate(("Name", "Launch command", "Accent")):
+        for row, label in enumerate(("Name", "Launch command", "Best for", "Accent")):
             tk.Label(
                 form,
                 text=label,
-                background="#111A2E",
-                foreground="#91A3BE",
+                background="#FFFFFF",
+                foreground="#718096",
                 anchor="w",
             ).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=8)
         ttk.Entry(form, textvariable=self.name_text).grid(row=0, column=1, sticky="ew", pady=8)
         ttk.Entry(form, textvariable=self.command_text).grid(row=1, column=1, sticky="ew", pady=8)
+        ttk.Entry(form, textvariable=self.description_text).grid(
+            row=2, column=1, sticky="ew", pady=8
+        )
         ttk.Combobox(
             form,
             textvariable=self.color_text,
             values=ACCENT_COLORS,
             state="readonly",
-        ).grid(row=2, column=1, sticky="ew", pady=8)
+        ).grid(row=3, column=1, sticky="ew", pady=8)
 
         self.preview = tk.Canvas(
             form,
             width=88,
             height=88,
-            background="#202B43",
+            background="#F2F5FA",
             highlightthickness=0,
         )
-        self.preview.grid(row=3, column=0, rowspan=2, pady=(18, 10))
+        self.preview.grid(row=4, column=0, rowspan=2, pady=(18, 10))
         ttk.Button(form, text="Choose PNG", command=self._choose_image).grid(
-            row=3, column=1, sticky="w", pady=(18, 4)
+            row=4, column=1, sticky="w", pady=(18, 4)
         )
         ttk.Button(form, text="Remove Image", command=self._remove_image).grid(
-            row=4, column=1, sticky="w", pady=4
+            row=5, column=1, sticky="w", pady=4
         )
         tk.Label(
             form,
             textvariable=self.image_text,
-            background="#111A2E",
+            background="#FFFFFF",
             foreground="#71839F",
             anchor="w",
-        ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 14))
+        ).grid(row=6, column=0, columnspan=2, sticky="ew", pady=(4, 14))
 
-        actions = tk.Frame(form, background="#111A2E")
-        actions.grid(row=6, column=0, columnspan=2, sticky="sew", pady=(18, 0))
+        actions = tk.Frame(form, background="#FFFFFF")
+        actions.grid(row=7, column=0, columnspan=2, sticky="sew", pady=(18, 0))
         actions.columnconfigure(0, weight=1)
         self.delete_button = ttk.Button(actions, text="Delete", command=self._delete)
         self.delete_button.grid(row=0, column=0, sticky="w")
@@ -157,6 +161,7 @@ class AgentSettingsWindow(tk.Toplevel):
         self.selected_id = agent.id
         self.name_text.set(agent.name)
         self.command_text.set(agent.command)
+        self.description_text.set(agent.description)
         self.color_text.set(agent.color)
         self.selected_image = self.registry.root / agent.image if agent.image else None
         self.image_text.set(agent.image or "No signature image")
@@ -169,6 +174,7 @@ class AgentSettingsWindow(tk.Toplevel):
         self.selected_image = None
         self.name_text.set("")
         self.command_text.set("")
+        self.description_text.set("")
         self.color_text.set(ACCENT_COLORS[0])
         self.image_text.set("No signature image")
         self.delete_button.grid_remove()
@@ -224,10 +230,21 @@ class AgentSettingsWindow(tk.Toplevel):
             )
             if self.selected_id:
                 agent = self.registry.update(
-                    self.selected_id, name, command, self.selected_image, color
+                    self.selected_id,
+                    name,
+                    command,
+                    self.selected_image,
+                    color,
+                    self.description_text.get(),
                 )
             else:
-                agent = self.registry.add(name, command, self.selected_image, color)
+                agent = self.registry.add(
+                    name,
+                    command,
+                    self.selected_image,
+                    color,
+                    self.description_text.get(),
+                )
         except RegistryError as error:
             messagebox.showerror("Cannot save agent", str(error), parent=self)
             return

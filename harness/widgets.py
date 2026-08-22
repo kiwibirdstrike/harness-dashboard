@@ -24,11 +24,10 @@ class AgentCard(tk.Canvas):
     def __init__(self, master: tk.Misc, agent: Agent, image_root: Path, **kwargs: object) -> None:
         super().__init__(
             master,
-            width=210,
-            height=72,
-            background="#131B2E",
-            highlightbackground="#263149",
-            highlightthickness=1,
+            width=244,
+            height=100,
+            background="#F9FBFE",
+            highlightthickness=0,
             cursor="hand2",
             **kwargs,
         )
@@ -36,42 +35,62 @@ class AgentCard(tk.Canvas):
         self.agent_name = agent.name
         self.agent_color = agent.color
         self._photo: tk.PhotoImage | None = None
-        self.create_rectangle(0, 0, 5, 72, fill=agent.color, outline=agent.color)
-        self.create_oval(18, 18, 54, 54, fill="#202B43", outline="")
+        self._rounded_rectangle(3, 3, 241, 97, 14, fill="#FFFFFF", outline="#DDE5F0")
+        self.create_line(11, 22, 11, 78, fill=agent.color, width=4, capstyle=tk.ROUND)
+        self.create_oval(22, 27, 64, 69, fill="#F2F5FA", outline="")
         if not self._draw_image(agent, image_root):
             self.create_text(
-                36,
-                36,
+                43,
+                48,
                 text=fallback_initial(agent.name),
                 fill=agent.color,
                 font=("TkDefaultFont", 14, "bold"),
             )
         self.create_text(
-            66,
-            25,
+            76,
+            22,
             text=agent.name,
-            fill="#F8FAFC",
+            fill="#172033",
             anchor="w",
             font=("TkDefaultFont", 11, "bold"),
         )
         self.create_text(
-            66,
-            47,
-            text=agent.command,
-            fill="#8EA0BC",
+            76,
+            50,
+            text=agent.description or "사용 목적을 설명에 추가하세요",
+            fill="#68788F",
             anchor="w",
-            width=132,
+            width=154,
             font=("TkDefaultFont", 9),
         )
+        self.create_text(
+            76,
+            80,
+            text=agent.command,
+            fill="#98A5B7",
+            anchor="w",
+            width=154,
+            font=("TkFixedFont", 8),
+        )
+
+    def _rounded_rectangle(
+        self, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs: object
+    ) -> int:
+        points = (
+            x1 + radius, y1, x2 - radius, y1, x2, y1, x2, y1 + radius,
+            x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
+            x1, y2, x1, y2 - radius, x1, y1 + radius, x1, y1,
+        )
+        return self.create_polygon(points, smooth=True, splinesteps=24, **kwargs)
 
     def _draw_image(self, agent: Agent, image_root: Path) -> bool:
         if not agent.image:
             return False
         try:
             photo = tk.PhotoImage(file=str(image_root / agent.image))
-            divisor = max(1, (max(photo.width(), photo.height()) + 35) // 36)
+            divisor = max(1, (max(photo.width(), photo.height()) + 41) // 42)
             self._photo = photo.subsample(divisor) if divisor > 1 else photo
-            self.create_image(36, 36, image=self._photo)
+            self.create_image(43, 48, image=self._photo)
             return True
         except tk.TclError:
             return False
@@ -91,7 +110,7 @@ class AgentDragController:
         self.press = (0, 0)
         self.target = ""
         self.ghost: tk.Toplevel | None = None
-        self.tree.tag_configure("drag-target", background="#263B63", foreground="#FFFFFF")
+        self.tree.tag_configure("drag-target", background="#DDD8FF", foreground="#172033")
 
     def attach(self, card: AgentCard, on_click: Callable[[str], None]) -> None:
         card.bind("<ButtonPress-1>", lambda event: self._start(card, event))
