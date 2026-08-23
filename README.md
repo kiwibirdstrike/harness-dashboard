@@ -17,6 +17,18 @@ python3 app.py
 
 상단의 `Set Root`로 프로젝트의 상위 폴더를 지정한 뒤 오른쪽 Agent Dock의 카드를 클릭하거나 폴더 위로 드래그해 배치합니다. 선택한 작업 폴더는 `Open Folder`로 Finder/Explorer에서 열고, `Open Terminal`로 배치된 CLI를 실행합니다. 배치 정보는 선택한 프로젝트의 `.harness.json`에 바로 저장됩니다.
 
+## Terminal Workspace
+
+`Open Terminal`은 선택한 폴더의 Agent 하나만 엽니다. `Open Workspace`는 현재 프로젝트에 정상 배치된 Agent를 모두 하나의 tmux 세션으로 실행하고 iTerm2에서 균등한 `tiled` 배치로 보여줍니다. 기존 세션이 있으면 Agent를 중복 실행하지 않고 `Show Workspace`로 다시 연결합니다.
+
+macOS 워크스페이스 기능에는 tmux가 필요하며 iTerm2 사용을 권장합니다. Harness는 두 프로그램을 자동 설치하지 않습니다. iTerm2가 없으면 기본 Terminal 앱으로 열립니다.
+
+```bash
+brew install tmux
+```
+
+`Stop Workspace`는 현재 프로젝트의 Harness tmux 세션과 그 안의 Agent를 모두 종료합니다. CLI가 종료된 pane은 오류 내용을 확인할 수 있도록 남아 있으며, pane을 닫으면 나머지가 다시 균등 배치됩니다.
+
 ## Agent 관리
 
 `Manage` 또는 왼쪽 아래 설정 버튼에서 Agent를 직접 추가·수정·삭제할 수 있습니다.

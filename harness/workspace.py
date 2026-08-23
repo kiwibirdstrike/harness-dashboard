@@ -161,6 +161,10 @@ def start_workspace(
                 str(binary),
                 "new-session",
                 "-d",
+                "-x",
+                "200",
+                "-y",
+                "60",
                 "-s",
                 session,
                 "-c",
@@ -208,7 +212,9 @@ def start_workspace(
             if not pane:
                 raise WorkspaceError("tmux did not return the new pane ID")
             _run(run, (str(binary), "select-pane", "-t", pane, "-T", entry.title))
-        _run(run, (str(binary), "select-layout", "-t", target, "tiled"))
+            _run(run, (str(binary), "select-layout", "-t", target, "tiled"))
+        if len(entries) == 1:
+            _run(run, (str(binary), "select-layout", "-t", target, "tiled"))
         return WorkspaceLaunchResult(session, len(entries), False, binary)
     except (OSError, subprocess.SubprocessError, WorkspaceError) as error:
         if created:

@@ -91,8 +91,7 @@ def build_workspace_attach_spec(
         script = (
             'tell application "iTerm2"\n'
             "activate\n"
-            "set newWindow to (create window with default profile)\n"
-            f'tell current session of newWindow to write text "{command}"\n'
+            f'create window with default profile command "{command}"\n'
             "end tell"
         )
     else:

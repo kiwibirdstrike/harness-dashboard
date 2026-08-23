@@ -285,6 +285,8 @@ class WorkspaceLauncherTests(unittest.TestCase):
 
         self.assertEqual(spec.argv[:2], ("osascript", "-e"))
         self.assertIn('tell application "iTerm2"', spec.argv[2])
+        self.assertIn("create window with default profile command", spec.argv[2])
+        self.assertNotIn("write text", spec.argv[2])
         self.assertIn(
             "/opt/homebrew/bin/tmux -CC attach -t harness-demo-12345678",
             spec.argv[2],
@@ -381,7 +383,9 @@ class TmuxWorkspaceTests(unittest.TestCase):
         self.assertFalse(result.reused)
         self.assertEqual(result.pane_count, 2)
         self.assertEqual(result.tmux_path, Path("tmux"))
-        self.assertTrue(any("new-session" in argv for argv, _ in calls))
+        new_session = next(argv for argv, _ in calls if "new-session" in argv)
+        self.assertIn(("-x", "200"), tuple(zip(new_session, new_session[1:])))
+        self.assertIn(("-y", "60"), tuple(zip(new_session, new_session[1:])))
         self.assertTrue(any("split-window" in argv for argv, _ in calls))
         self.assertTrue(any(argv[-1] == "tiled" for argv, _ in calls))
         self.assertEqual(sum("select-pane" in argv for argv, _ in calls), 2)
@@ -405,6 +409,34 @@ class TmuxWorkspaceTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("has-session", calls[0])
         self.assertIn("list-panes", calls[1])
+
+    def test_retiles_after_each_added_pane(self):
+        calls = []
+        entries = tuple(
+            WorkspaceEntry(self.root, f"Agent {index}", "agent", f"Agent {index}")
+            for index in range(6)
+        )
+        next_pane = 1
+
+        def run(argv, **kwargs):
+            nonlocal next_pane
+            calls.append(tuple(argv))
+            if argv[1] == "has-session":
+                return Completed(1)
+            if argv[1] == "split-window":
+                pane = next_pane
+                next_pane += 1
+                return Completed(stdout=f"%{pane}\n")
+            return Completed()
+
+        start_workspace(self.root, entries, run=run, tmux="tmux")
+
+        split_indexes = [index for index, argv in enumerate(calls) if "split-window" in argv]
+        layout_indexes = [index for index, argv in enumerate(calls) if "select-layout" in argv]
+        self.assertEqual(len(layout_indexes), len(split_indexes))
+        for position, split_index in enumerate(split_indexes):
+            next_split = split_indexes[position + 1] if position + 1 < len(split_indexes) else len(calls)
+            self.assertTrue(any(split_index < layout < next_split for layout in layout_indexes))
 
     def test_existing_session_reopens_when_assignments_are_now_empty(self):
         def run(argv, **kwargs):
