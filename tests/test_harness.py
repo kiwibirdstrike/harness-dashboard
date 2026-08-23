@@ -1,4 +1,5 @@
 import base64
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +17,15 @@ from harness.launcher import (
 from harness.scanner import scan_folders
 from harness.settings_window import validate_form
 from harness.widgets import fallback_initial, tree_row_at_pointer
-from harness.workspace import collect_workspace_entries, workspace_session_name
+from harness.workspace import (
+    WorkspaceEntry,
+    WorkspaceError,
+    collect_workspace_entries,
+    find_tmux,
+    start_workspace,
+    stop_workspace,
+    workspace_session_name,
+)
 from scripts.build import PROJECT_ROOT, build_command, build_environment
 
 
@@ -283,6 +292,101 @@ class WorkspaceSelectionTests(unittest.TestCase):
         self.assertEqual(first, workspace_session_name(Path("/tmp/one/Project")))
         self.assertNotEqual(first, second)
         self.assertRegex(first, r"^harness-project-[0-9a-f]{8}$")
+
+
+class Completed:
+    def __init__(self, returncode=0, stdout=""):
+        self.returncode = returncode
+        self.stdout = stdout
+
+
+class TmuxWorkspaceTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path("/tmp/project")
+        self.entries = (
+            WorkspaceEntry(self.root, "Codex", "codex", "Codex · project"),
+            WorkspaceEntry(self.root / "docs", "Claude", "claude", "Claude · docs"),
+        )
+
+    def test_creates_titled_panes_and_reapplies_tiled_layout(self):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((tuple(argv), kwargs))
+            if argv[1] == "has-session":
+                return Completed(1)
+            if argv[1] == "split-window":
+                return Completed(stdout="%1\n")
+            return Completed()
+
+        result = start_workspace(self.root, self.entries, run=run, tmux="tmux")
+
+        self.assertFalse(result.reused)
+        self.assertEqual(result.pane_count, 2)
+        self.assertEqual(result.tmux_path, Path("tmux"))
+        self.assertTrue(any("new-session" in argv for argv, _ in calls))
+        self.assertTrue(any("split-window" in argv for argv, _ in calls))
+        self.assertTrue(any(argv[-1] == "tiled" for argv, _ in calls))
+        self.assertEqual(sum("select-pane" in argv for argv, _ in calls), 2)
+        self.assertTrue(any("remain-on-exit" in argv for argv, _ in calls))
+        self.assertTrue(any("after-kill-pane" in argv for argv, _ in calls))
+        self.assertTrue(any("%1" in argv and "Claude · docs" in argv for argv, _ in calls))
+
+    def test_existing_session_is_reused_without_starting_agents(self):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(tuple(argv))
+            if argv[1] == "list-panes":
+                return Completed(stdout="%0\n%1\n")
+            return Completed()
+
+        result = start_workspace(self.root, self.entries, run=run, tmux="tmux")
+
+        self.assertTrue(result.reused)
+        self.assertEqual(result.pane_count, 2)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("has-session", calls[0])
+        self.assertIn("list-panes", calls[1])
+
+    def test_partial_failure_kills_only_the_new_session(self):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(tuple(argv))
+            if argv[1] == "has-session":
+                return Completed(1)
+            if argv[1] == "split-window":
+                raise subprocess.CalledProcessError(1, argv)
+            return Completed()
+
+        with self.assertRaises(WorkspaceError):
+            start_workspace(self.root, self.entries, run=run, tmux="tmux")
+
+        self.assertIn("kill-session", calls[-1])
+
+    def test_stop_targets_the_project_session(self):
+        calls = []
+
+        stop_workspace(
+            self.root,
+            run=lambda argv, **kwargs: calls.append(tuple(argv)) or Completed(),
+            tmux="tmux",
+        )
+
+        self.assertEqual(calls[0][1], "kill-session")
+        self.assertEqual(calls[0][2], "-t")
+        self.assertEqual(calls[0][3], workspace_session_name(self.root))
+
+    def test_finds_homebrew_tmux_when_gui_path_is_empty(self):
+        homebrew = Path("/opt/homebrew/bin/tmux")
+
+        found = find_tmux(
+            which=lambda _name: None,
+            is_file=lambda path: path == homebrew,
+        )
+
+        self.assertEqual(found, homebrew)
 
 
 class AppAgentTests(unittest.TestCase):

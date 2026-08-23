@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+import shutil
+import subprocess
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +24,21 @@ class WorkspaceEntry:
 class WorkspaceSelection:
     entries: tuple[WorkspaceEntry, ...]
     skipped: tuple[str, ...]
+
+
+class WorkspaceError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class WorkspaceLaunchResult:
+    session_name: str
+    pane_count: int
+    reused: bool
+    tmux_path: Path
+
+
+Runner = Callable[..., subprocess.CompletedProcess]
 
 
 def workspace_session_name(root: Path) -> str:
@@ -57,3 +74,156 @@ def collect_workspace_entries(
             )
         )
     return WorkspaceSelection(tuple(entries), tuple(skipped))
+
+
+def find_tmux(
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    is_file: Callable[[Path], bool] = Path.is_file,
+) -> Path | None:
+    from_path = which("tmux")
+    candidates = tuple(
+        candidate
+        for candidate in (
+            Path(from_path) if from_path else None,
+            Path("/opt/homebrew/bin/tmux"),
+            Path("/usr/local/bin/tmux"),
+        )
+        if candidate is not None
+    )
+    return next((candidate for candidate in candidates if is_file(candidate)), None)
+
+
+def tmux_available() -> bool:
+    return find_tmux() is not None
+
+
+def _tmux_binary(tmux: str | Path | None) -> Path:
+    binary = Path(tmux) if tmux is not None else find_tmux()
+    if binary is None:
+        raise WorkspaceError("tmux is required; install it with 'brew install tmux'")
+    return binary
+
+
+def _run(
+    run: Runner,
+    argv: Sequence[str],
+    *,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
+    return run(tuple(argv), check=check, capture_output=True, text=True)
+
+
+def workspace_exists(
+    root: Path,
+    *,
+    run: Runner = subprocess.run,
+    tmux: str | Path | None = None,
+) -> bool:
+    session = workspace_session_name(root)
+    binary = _tmux_binary(tmux)
+    try:
+        result = _run(run, (str(binary), "has-session", "-t", session), check=False)
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WorkspaceError(f"Could not inspect terminal workspace: {error}") from error
+
+
+def start_workspace(
+    root: Path,
+    entries: tuple[WorkspaceEntry, ...],
+    *,
+    run: Runner = subprocess.run,
+    tmux: str | Path | None = None,
+) -> WorkspaceLaunchResult:
+    if not entries:
+        raise WorkspaceError("No valid assigned folders to launch")
+    session = workspace_session_name(root)
+    binary = _tmux_binary(tmux)
+    if workspace_exists(root, run=run, tmux=binary):
+        result = _run(
+            run,
+            (str(binary), "list-panes", "-t", f"{session}:0", "-F", "#{pane_id}"),
+        )
+        return WorkspaceLaunchResult(
+            session,
+            len(result.stdout.splitlines()),
+            True,
+            binary,
+        )
+
+    created = False
+    try:
+        first = entries[0]
+        _run(
+            run,
+            (
+                str(binary),
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-c",
+                str(first.folder),
+                first.command,
+            ),
+        )
+        created = True
+        target = f"{session}:0"
+        _run(run, (str(binary), "select-pane", "-t", f"{target}.0", "-T", first.title))
+        _run(run, (str(binary), "set-option", "-w", "-t", target, "remain-on-exit", "on"))
+        _run(run, (str(binary), "set-option", "-w", "-t", target, "pane-border-status", "top"))
+        _run(
+            run,
+            (str(binary), "set-option", "-w", "-t", target, "pane-border-format", " #{pane_title} "),
+        )
+        _run(
+            run,
+            (
+                str(binary),
+                "set-hook",
+                "-t",
+                session,
+                "after-kill-pane",
+                f"select-layout -t {target} tiled",
+            ),
+        )
+        for entry in entries[1:]:
+            pane = _run(
+                run,
+                (
+                    str(binary),
+                    "split-window",
+                    "-d",
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                    "-t",
+                    target,
+                    "-c",
+                    str(entry.folder),
+                    entry.command,
+                ),
+            ).stdout.strip()
+            if not pane:
+                raise WorkspaceError("tmux did not return the new pane ID")
+            _run(run, (str(binary), "select-pane", "-t", pane, "-T", entry.title))
+        _run(run, (str(binary), "select-layout", "-t", target, "tiled"))
+        return WorkspaceLaunchResult(session, len(entries), False, binary)
+    except (OSError, subprocess.SubprocessError, WorkspaceError) as error:
+        if created:
+            _run(run, (str(binary), "kill-session", "-t", session), check=False)
+        raise WorkspaceError(f"Could not create terminal workspace: {error}") from error
+
+
+def stop_workspace(
+    root: Path,
+    *,
+    run: Runner = subprocess.run,
+    tmux: str | Path | None = None,
+) -> None:
+    binary = _tmux_binary(tmux)
+    try:
+        _run(run, (str(binary), "kill-session", "-t", workspace_session_name(root)))
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WorkspaceError(f"Could not stop terminal workspace: {error}") from error
