@@ -12,6 +12,9 @@ from harness.launcher import (
     LaunchError,
     build_launch_spec,
     build_open_folder_spec,
+    build_workspace_attach_spec,
+    find_iterm_app,
+    launch_workspace,
     validate_launch_command,
 )
 from harness.scanner import scan_folders
@@ -264,6 +267,54 @@ class LauncherTests(unittest.TestCase):
         for command in ("", "codex\nrm", "codex\0bad"):
             with self.assertRaises(LaunchError):
                 validate_launch_command(command)
+
+
+class WorkspaceLauncherTests(unittest.TestCase):
+    def test_iterm_attach_uses_tmux_control_mode(self):
+        spec = build_workspace_attach_spec(
+            "harness-demo-12345678",
+            Path("/opt/homebrew/bin/tmux"),
+            use_iterm=True,
+        )
+
+        self.assertEqual(spec.argv[:2], ("osascript", "-e"))
+        self.assertIn('tell application "iTerm2"', spec.argv[2])
+        self.assertIn(
+            "/opt/homebrew/bin/tmux -CC attach -t harness-demo-12345678",
+            spec.argv[2],
+        )
+
+    def test_terminal_fallback_uses_standard_tmux_attach(self):
+        spec = build_workspace_attach_spec(
+            "harness-demo-12345678",
+            Path("/opt/homebrew/bin/tmux"),
+            use_iterm=False,
+        )
+
+        self.assertIn('tell application "Terminal"', spec.argv[2])
+        self.assertIn("tmux attach -t harness-demo-12345678", spec.argv[2])
+        self.assertNotIn("-CC", spec.argv[2])
+
+    def test_find_iterm_checks_system_and_user_applications(self):
+        existing = {Path("/Users/me/Applications/iTerm.app")}
+
+        found = find_iterm_app(
+            home=Path("/Users/me"),
+            is_dir=lambda path: path in existing,
+        )
+
+        self.assertEqual(found, Path("/Users/me/Applications/iTerm.app"))
+
+    @mock.patch("harness.launcher.subprocess.Popen")
+    @mock.patch("harness.launcher.find_iterm_app", return_value=Path("/Applications/iTerm.app"))
+    def test_launch_workspace_prefers_iterm(self, _find, popen):
+        application = launch_workspace(
+            "harness-demo-12345678",
+            Path("/opt/homebrew/bin/tmux"),
+        )
+
+        self.assertEqual(application, "iTerm2")
+        self.assertIn("iTerm2", popen.call_args.args[0][2])
 
 
 class WorkspaceSelectionTests(unittest.TestCase):
