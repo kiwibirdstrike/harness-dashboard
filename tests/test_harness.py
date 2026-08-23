@@ -9,8 +9,10 @@ from app import (
     assignment_key,
     can_launch,
     resolve_agent_label,
+    start_and_launch_workspace,
     tree_agent_label,
     workspace_control_state,
+    workspace_has_assignments,
 )
 from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
 from harness.config import ConfigError, load_assignments, save_assignments
@@ -29,6 +31,7 @@ from harness.widgets import fallback_initial, tree_row_at_pointer
 from harness.workspace import (
     WorkspaceEntry,
     WorkspaceError,
+    WorkspaceLaunchResult,
     collect_workspace_entries,
     find_tmux,
     start_workspace,
@@ -313,16 +316,32 @@ class WorkspaceLauncherTests(unittest.TestCase):
 
         self.assertEqual(found, Path("/Users/me/Applications/iTerm.app"))
 
-    @mock.patch("harness.launcher.subprocess.Popen")
+    @mock.patch("harness.launcher.subprocess.run")
     @mock.patch("harness.launcher.find_iterm_app", return_value=Path("/Applications/iTerm.app"))
-    def test_launch_workspace_prefers_iterm(self, _find, popen):
+    def test_launch_workspace_prefers_iterm(self, _find, run):
         application = launch_workspace(
             "harness-demo-12345678",
             Path("/opt/homebrew/bin/tmux"),
         )
 
         self.assertEqual(application, "iTerm2")
-        self.assertIn("iTerm2", popen.call_args.args[0][2])
+        self.assertIn("iTerm2", run.call_args.args[0][2])
+        self.assertTrue(run.call_args.kwargs["check"])
+
+    @mock.patch("harness.launcher.subprocess.run")
+    @mock.patch("harness.launcher.find_iterm_app", return_value=Path("/Applications/iTerm.app"))
+    def test_launch_workspace_reports_applescript_failure(self, _find, run):
+        run.side_effect = subprocess.CalledProcessError(
+            1,
+            ("osascript",),
+            stderr="automation denied",
+        )
+
+        with self.assertRaisesRegex(LaunchError, "automation denied"):
+            launch_workspace(
+                "harness-demo-12345678",
+                Path("/opt/homebrew/bin/tmux"),
+            )
 
 
 class WorkspaceSelectionTests(unittest.TestCase):
@@ -386,9 +405,16 @@ class TmuxWorkspaceTests(unittest.TestCase):
         new_session = next(argv for argv, _ in calls if "new-session" in argv)
         self.assertIn(("-x", "200"), tuple(zip(new_session, new_session[1:])))
         self.assertIn(("-y", "60"), tuple(zip(new_session, new_session[1:])))
+        self.assertNotIn("codex", new_session)
         self.assertTrue(any("split-window" in argv for argv, _ in calls))
         self.assertTrue(any(argv[-1] == "tiled" for argv, _ in calls))
         self.assertEqual(sum("select-pane" in argv for argv, _ in calls), 2)
+        typed_commands = [
+            argv[-1]
+            for argv, _ in calls
+            if "send-keys" in argv and "-l" in argv
+        ]
+        self.assertEqual(typed_commands, ["codex", "claude"])
         self.assertTrue(any("remain-on-exit" in argv for argv, _ in calls))
         self.assertTrue(any("after-kill-pane" in argv for argv, _ in calls))
         self.assertTrue(any("%1" in argv and "Claude · docs" in argv for argv, _ in calls))
@@ -539,6 +565,47 @@ class WorkspaceControlStateTests(unittest.TestCase):
             workspace_control_state(True, False, True),
             ("Show Workspace", True, True),
         )
+
+    def test_invalid_assignments_still_enable_workspace_feedback(self):
+        from harness.workspace import WorkspaceSelection
+
+        selection = WorkspaceSelection((), ("docs: missing agent",))
+
+        self.assertTrue(workspace_has_assignments(selection))
+
+
+class WorkspaceLaunchLifecycleTests(unittest.TestCase):
+    def test_attach_failure_stops_a_new_session(self):
+        root = Path("/tmp/project")
+        stopped = []
+        result = WorkspaceLaunchResult("harness-project-12345678", 2, False, Path("tmux"))
+
+        with self.assertRaises(LaunchError):
+            start_and_launch_workspace(
+                root,
+                (),
+                start=lambda _root, _entries: result,
+                launch=lambda _session, _tmux: (_ for _ in ()).throw(LaunchError("denied")),
+                stop=lambda stopped_root: stopped.append(stopped_root),
+            )
+
+        self.assertEqual(stopped, [root])
+
+    def test_attach_failure_does_not_stop_a_reused_session(self):
+        root = Path("/tmp/project")
+        stopped = []
+        result = WorkspaceLaunchResult("harness-project-12345678", 2, True, Path("tmux"))
+
+        with self.assertRaises(LaunchError):
+            start_and_launch_workspace(
+                root,
+                (),
+                start=lambda _root, _entries: result,
+                launch=lambda _session, _tmux: (_ for _ in ()).throw(LaunchError("denied")),
+                stop=lambda stopped_root: stopped.append(stopped_root),
+            )
+
+        self.assertEqual(stopped, [])
 
 
 class FakeTree:

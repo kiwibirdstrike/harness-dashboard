@@ -114,6 +114,12 @@ def _run(
     return run(tuple(argv), check=check, capture_output=True, text=True)
 
 
+def _send_command(run: Runner, binary: Path, pane: str, command: str) -> None:
+    command = validate_launch_command(command)
+    _run(run, (str(binary), "send-keys", "-t", pane, "-l", "--", command))
+    _run(run, (str(binary), "send-keys", "-t", pane, "Enter"))
+
+
 def workspace_exists(
     root: Path,
     *,
@@ -169,7 +175,6 @@ def start_workspace(
                 session,
                 "-c",
                 str(first.folder),
-                first.command,
             ),
         )
         created = True
@@ -192,6 +197,7 @@ def start_workspace(
                 f"select-layout -t {target} tiled",
             ),
         )
+        _send_command(run, binary, f"{target}.0", first.command)
         for entry in entries[1:]:
             pane = _run(
                 run,
@@ -206,12 +212,12 @@ def start_workspace(
                     target,
                     "-c",
                     str(entry.folder),
-                    entry.command,
                 ),
             ).stdout.strip()
             if not pane:
                 raise WorkspaceError("tmux did not return the new pane ID")
             _run(run, (str(binary), "select-pane", "-t", pane, "-T", entry.title))
+            _send_command(run, binary, pane, entry.command)
             _run(run, (str(binary), "select-layout", "-t", target, "tiled"))
         if len(entries) == 1:
             _run(run, (str(binary), "select-layout", "-t", target, "tiled"))

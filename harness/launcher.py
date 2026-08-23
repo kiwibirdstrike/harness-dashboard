@@ -144,7 +144,15 @@ def launch_workspace(session_name: str, tmux_path: Path) -> str:
         use_iterm=application == "iTerm2",
     )
     try:
-        subprocess.Popen(spec.argv)
+        subprocess.run(
+            spec.argv,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or error.stdout or str(error)).strip()
+        raise LaunchError(f"Could not open terminal workspace: {detail}") from error
     except OSError as error:
         raise LaunchError(f"Could not open terminal workspace: {error}") from error
     return application

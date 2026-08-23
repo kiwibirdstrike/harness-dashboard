@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -18,6 +18,8 @@ from harness.settings_window import AgentSettingsWindow
 from harness.widgets import AgentCard, AgentDragController
 from harness.workspace import (
     WorkspaceError,
+    WorkspaceEntry,
+    WorkspaceLaunchResult,
     WorkspaceSelection,
     collect_workspace_entries,
     start_workspace,
@@ -67,6 +69,31 @@ def workspace_control_state(
         has_project and (has_entries or session_exists),
         session_exists,
     )
+
+
+def workspace_has_assignments(selection: WorkspaceSelection | None) -> bool:
+    return bool(selection and (selection.entries or selection.skipped))
+
+
+def start_and_launch_workspace(
+    root: Path,
+    entries: tuple[WorkspaceEntry, ...],
+    *,
+    start: Callable[..., WorkspaceLaunchResult] = start_workspace,
+    launch: Callable[[str, Path], str] = launch_workspace,
+    stop: Callable[[Path], None] = stop_workspace,
+) -> tuple[WorkspaceLaunchResult, str]:
+    result = start(root, entries)
+    try:
+        application = launch(result.session_name, result.tmux_path)
+    except LaunchError as error:
+        if not result.reused:
+            try:
+                stop(root)
+            except WorkspaceError as cleanup_error:
+                raise LaunchError(f"{error}; cleanup failed: {cleanup_error}") from error
+        raise
+    return result, application
 
 
 class HarnessDashboard:
@@ -507,7 +534,7 @@ class HarnessDashboard:
 
     def _refresh_workspace_controls(self) -> None:
         selection = self._workspace_selection()
-        has_entries = bool(selection and selection.entries)
+        has_assignments = workspace_has_assignments(selection)
         exists = False
         if self.project_root is not None and tmux_available():
             try:
@@ -516,7 +543,7 @@ class HarnessDashboard:
                 exists = False
         label, enabled, show_stop = workspace_control_state(
             self.project_root is not None,
-            has_entries,
+            has_assignments,
             exists,
         )
         self.workspace_button.configure(
@@ -532,6 +559,23 @@ class HarnessDashboard:
         selection = self._workspace_selection()
         if self.project_root is None or selection is None:
             return
+        if selection.skipped:
+            messagebox.showwarning(
+                "Some folders will be skipped",
+                "\n".join(selection.skipped),
+                parent=self.root,
+            )
+        if not selection.entries:
+            if not tmux_available():
+                self.status_text.set("No valid assigned folders to launch")
+                return
+            try:
+                if not workspace_exists(self.project_root):
+                    self.status_text.set("No valid assigned folders to launch")
+                    return
+            except WorkspaceError as error:
+                messagebox.showerror("Cannot inspect workspace", str(error), parent=self.root)
+                return
         if not tmux_available():
             messagebox.showerror(
                 "tmux is required",
@@ -541,9 +585,12 @@ class HarnessDashboard:
             )
             return
         try:
-            result = start_workspace(self.project_root, selection.entries)
-            application = launch_workspace(result.session_name, result.tmux_path)
+            result, application = start_and_launch_workspace(
+                self.project_root,
+                selection.entries,
+            )
         except (WorkspaceError, LaunchError) as error:
+            self._refresh_workspace_controls()
             messagebox.showerror("Cannot open workspace", str(error), parent=self.root)
             return
         verb = "Reopened" if result.reused else "Opened"
@@ -551,12 +598,6 @@ class HarnessDashboard:
         self.status_text.set(
             f"{verb} {result.pane_count} terminals in {application}{skipped}"
         )
-        if selection.skipped:
-            messagebox.showwarning(
-                "Some folders were skipped",
-                "\n".join(selection.skipped),
-                parent=self.root,
-            )
         self._refresh_workspace_controls()
 
     def _stop_workspace(self) -> None:
