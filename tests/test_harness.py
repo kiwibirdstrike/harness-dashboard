@@ -7,10 +7,16 @@ from unittest import mock
 from app import assignment_key, can_launch, resolve_agent_label, tree_agent_label
 from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
 from harness.config import ConfigError, load_assignments, save_assignments
-from harness.launcher import LaunchError, build_launch_spec, build_open_folder_spec
+from harness.launcher import (
+    LaunchError,
+    build_launch_spec,
+    build_open_folder_spec,
+    validate_launch_command,
+)
 from harness.scanner import scan_folders
 from harness.settings_window import validate_form
 from harness.widgets import fallback_initial, tree_row_at_pointer
+from harness.workspace import collect_workspace_entries, workspace_session_name
 from scripts.build import PROJECT_ROOT, build_command, build_environment
 
 
@@ -243,6 +249,40 @@ class LauncherTests(unittest.TestCase):
             build_open_folder_spec(folder, system="Windows").argv,
             ("explorer.exe", str(folder)),
         )
+
+    def test_rejects_empty_and_multiline_commands(self):
+        self.assertEqual(validate_launch_command(" codex --fast "), "codex --fast")
+        for command in ("", "codex\nrm", "codex\0bad"):
+            with self.assertRaises(LaunchError):
+                validate_launch_command(command)
+
+
+class WorkspaceSelectionTests(unittest.TestCase):
+    def test_collects_valid_entries_and_reports_invalid_assignments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "src").mkdir()
+            agents = {
+                "codex": Agent("codex", "Codex", "codex", None, "#7C3AED"),
+            }
+
+            selection = collect_workspace_entries(
+                root,
+                {".": "codex", "src": "codex", "gone": "codex", "docs": "deleted"},
+                agents,
+            )
+
+            self.assertEqual([entry.folder for entry in selection.entries], [root, root / "src"])
+            self.assertEqual(selection.entries[1].title, "Codex · src")
+            self.assertEqual(selection.skipped, ("docs: missing agent", "gone: missing folder"))
+
+    def test_session_name_is_stable_and_path_specific(self):
+        first = workspace_session_name(Path("/tmp/one/Project"))
+        second = workspace_session_name(Path("/tmp/two/Project"))
+
+        self.assertEqual(first, workspace_session_name(Path("/tmp/one/Project")))
+        self.assertNotEqual(first, second)
+        self.assertRegex(first, r"^harness-project-[0-9a-f]{8}$")
 
 
 class AppAgentTests(unittest.TestCase):

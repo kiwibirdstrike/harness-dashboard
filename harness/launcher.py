@@ -17,12 +17,17 @@ class LaunchSpec:
     creationflags: int = 0
 
 
-def build_launch_spec(
-    folder: Path, command: str, system: str | None = None
-) -> LaunchSpec:
+def validate_launch_command(command: str) -> str:
     command = command.strip()
     if not command or any(character in command for character in "\r\n\0"):
         raise LaunchError("Launch command must be one line")
+    return command
+
+
+def build_launch_spec(
+    folder: Path, command: str, system: str | None = None
+) -> LaunchSpec:
+    command = validate_launch_command(command)
 
     system = system or platform.system()
     if system == "Darwin":
