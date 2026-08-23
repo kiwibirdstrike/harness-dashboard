@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from app import assignment_key, can_launch, resolve_agent_label, tree_agent_label
+from app import (
+    assignment_key,
+    can_launch,
+    resolve_agent_label,
+    tree_agent_label,
+    workspace_control_state,
+)
 from harness.agent_registry import Agent, AgentRegistry, RegistryError, app_data_dir
 from harness.config import ConfigError, load_assignments, save_assignments
 from harness.launcher import (
@@ -400,6 +406,17 @@ class TmuxWorkspaceTests(unittest.TestCase):
         self.assertIn("has-session", calls[0])
         self.assertIn("list-panes", calls[1])
 
+    def test_existing_session_reopens_when_assignments_are_now_empty(self):
+        def run(argv, **kwargs):
+            if argv[1] == "list-panes":
+                return Completed(stdout="%0\n")
+            return Completed()
+
+        result = start_workspace(self.root, (), run=run, tmux="tmux")
+
+        self.assertTrue(result.reused)
+        self.assertEqual(result.pane_count, 1)
+
     def test_partial_failure_kills_only_the_new_session(self):
         calls = []
 
@@ -464,6 +481,32 @@ class AppAgentTests(unittest.TestCase):
             self.assertFalse(can_launch("deleted", {"known": agent}, folder))
 
         self.assertFalse(can_launch("known", {"known": agent}, folder))
+
+
+class WorkspaceControlStateTests(unittest.TestCase):
+    def test_disabled_without_project_or_valid_assignments(self):
+        self.assertEqual(
+            workspace_control_state(False, False, False),
+            ("Open Workspace", False, False),
+        )
+        self.assertEqual(
+            workspace_control_state(True, False, False),
+            ("Open Workspace", False, False),
+        )
+
+    def test_open_and_show_states(self):
+        self.assertEqual(
+            workspace_control_state(True, True, False),
+            ("Open Workspace", True, False),
+        )
+        self.assertEqual(
+            workspace_control_state(True, True, True),
+            ("Show Workspace", True, True),
+        )
+        self.assertEqual(
+            workspace_control_state(True, False, True),
+            ("Show Workspace", True, True),
+        )
 
 
 class FakeTree:

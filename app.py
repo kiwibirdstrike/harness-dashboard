@@ -7,10 +7,24 @@ from tkinter import filedialog, messagebox, ttk
 
 from harness.agent_registry import Agent, AgentRegistry, RegistryError
 from harness.config import ConfigError, load_assignments, save_assignments
-from harness.launcher import LaunchError, launch_agent, open_folder as reveal_folder
+from harness.launcher import (
+    LaunchError,
+    launch_agent,
+    launch_workspace,
+    open_folder as reveal_folder,
+)
 from harness.scanner import FolderNode, scan_folders
 from harness.settings_window import AgentSettingsWindow
 from harness.widgets import AgentCard, AgentDragController
+from harness.workspace import (
+    WorkspaceError,
+    WorkspaceSelection,
+    collect_workspace_entries,
+    start_workspace,
+    stop_workspace,
+    tmux_available,
+    workspace_exists,
+)
 
 
 BG = "#F4F7FB"
@@ -41,6 +55,18 @@ def tree_agent_label(agent_id: str | None, agents: Mapping[str, Agent]) -> str:
 
 def can_launch(agent_id: str | None, agents: Mapping[str, Agent], folder: Path) -> bool:
     return bool(agent_id and agent_id in agents and folder.is_dir())
+
+
+def workspace_control_state(
+    has_project: bool,
+    has_entries: bool,
+    session_exists: bool,
+) -> tuple[str, bool, bool]:
+    return (
+        "Show Workspace" if session_exists else "Open Workspace",
+        has_project and (has_entries or session_exists),
+        session_exists,
+    )
 
 
 class HarnessDashboard:
@@ -123,9 +149,25 @@ class HarnessDashboard:
         ttk.Button(header, text="⌂  Set Root", style="Ghost.TButton", command=self.choose_root).grid(
             row=0, column=1, padx=(16, 0)
         )
+        self.workspace_button = ttk.Button(
+            header,
+            text="Open Workspace",
+            style="Action.TButton",
+            command=self._open_workspace,
+            state="disabled",
+        )
+        self.workspace_button.grid(row=0, column=2, padx=(8, 0))
+        self.stop_workspace_button = ttk.Button(
+            header,
+            text="Stop Workspace",
+            style="Ghost.TButton",
+            command=self._stop_workspace,
+        )
+        self.stop_workspace_button.grid(row=0, column=3, padx=(8, 0))
+        self.stop_workspace_button.grid_remove()
         tk.Label(
             header, textvariable=self.project_text, background=BG, foreground=MUTED, anchor="w"
-        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+        ).grid(row=1, column=0, columnspan=4, sticky="ew", pady=(5, 0))
 
         tree_panel = tk.Frame(
             workspace, background=PANEL, highlightbackground=BORDER, highlightthickness=1
@@ -271,6 +313,7 @@ class HarnessDashboard:
         self._refresh_dock()
         self._refresh_tree_labels()
         self._refresh_selected()
+        self._refresh_workspace_controls()
 
     def _refresh_dock(self) -> None:
         for child in self.cards_frame.winfo_children():
@@ -310,6 +353,7 @@ class HarnessDashboard:
         self.project_name.set(project.name)
         self._populate_tree(tree)
         self.status_text.set(f"Loaded {project.name}")
+        self._refresh_workspace_controls()
 
     def _populate_tree(self, root_node: FolderNode) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -391,6 +435,7 @@ class HarnessDashboard:
         self.selected_folder = folder
         self._refresh_selected()
         self.status_text.set(f"{self.agents[agent_id].name} assigned to {folder.name}")
+        self._refresh_workspace_controls()
 
     def _unassign_selected(self) -> None:
         if self.project_root is None or self.selected_folder is None:
@@ -406,6 +451,7 @@ class HarnessDashboard:
         self._set_item_agent(selection[0], None)
         self._refresh_selected()
         self.status_text.set(f"Removed agent from {self.selected_folder.name}")
+        self._refresh_workspace_controls()
 
     def _save_or_restore(self, previous: dict[str, str]) -> bool:
         if self.project_root is None:
@@ -453,6 +499,82 @@ class HarnessDashboard:
             messagebox.showerror("Cannot open folder", str(error), parent=self.root)
             return
         self.status_text.set(f"Opened folder: {self.selected_folder.name}")
+
+    def _workspace_selection(self) -> WorkspaceSelection | None:
+        if self.project_root is None:
+            return None
+        return collect_workspace_entries(self.project_root, self.assignments, self.agents)
+
+    def _refresh_workspace_controls(self) -> None:
+        selection = self._workspace_selection()
+        has_entries = bool(selection and selection.entries)
+        exists = False
+        if self.project_root is not None and tmux_available():
+            try:
+                exists = workspace_exists(self.project_root)
+            except WorkspaceError:
+                exists = False
+        label, enabled, show_stop = workspace_control_state(
+            self.project_root is not None,
+            has_entries,
+            exists,
+        )
+        self.workspace_button.configure(
+            text=label,
+            state="normal" if enabled else "disabled",
+        )
+        if show_stop:
+            self.stop_workspace_button.grid()
+        else:
+            self.stop_workspace_button.grid_remove()
+
+    def _open_workspace(self) -> None:
+        selection = self._workspace_selection()
+        if self.project_root is None or selection is None:
+            return
+        if not tmux_available():
+            messagebox.showerror(
+                "tmux is required",
+                "Install tmux with 'brew install tmux', then reopen the workspace. "
+                "Harness will not install it automatically.",
+                parent=self.root,
+            )
+            return
+        try:
+            result = start_workspace(self.project_root, selection.entries)
+            application = launch_workspace(result.session_name, result.tmux_path)
+        except (WorkspaceError, LaunchError) as error:
+            messagebox.showerror("Cannot open workspace", str(error), parent=self.root)
+            return
+        verb = "Reopened" if result.reused else "Opened"
+        skipped = f"; skipped {len(selection.skipped)}" if selection.skipped else ""
+        self.status_text.set(
+            f"{verb} {result.pane_count} terminals in {application}{skipped}"
+        )
+        if selection.skipped:
+            messagebox.showwarning(
+                "Some folders were skipped",
+                "\n".join(selection.skipped),
+                parent=self.root,
+            )
+        self._refresh_workspace_controls()
+
+    def _stop_workspace(self) -> None:
+        if self.project_root is None:
+            return
+        if not messagebox.askyesno(
+            "Stop workspace",
+            "Stop every Agent terminal in this project workspace?",
+            parent=self.root,
+        ):
+            return
+        try:
+            stop_workspace(self.project_root)
+        except WorkspaceError as error:
+            messagebox.showerror("Cannot stop workspace", str(error), parent=self.root)
+            return
+        self.status_text.set("Stopped terminal workspace")
+        self._refresh_workspace_controls()
 
     def _selected_agent_summary(self, agent_id: str) -> str:
         agent = self.agents.get(agent_id)

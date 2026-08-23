@@ -136,8 +136,6 @@ def start_workspace(
     run: Runner = subprocess.run,
     tmux: str | Path | None = None,
 ) -> WorkspaceLaunchResult:
-    if not entries:
-        raise WorkspaceError("No valid assigned folders to launch")
     session = workspace_session_name(root)
     binary = _tmux_binary(tmux)
     if workspace_exists(root, run=run, tmux=binary):
@@ -151,6 +149,8 @@ def start_workspace(
             True,
             binary,
         )
+    if not entries:
+        raise WorkspaceError("No valid assigned folders to launch")
 
     created = False
     try:
