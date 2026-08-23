@@ -47,7 +47,12 @@ brew install tmux
 
 `skills/job-decomposer`에는 전체 프로젝트 작업을 서로 독립적으로 배치할 수 있는 평면 Job 폴더로 나누는 대화형 Codex 스킬이 들어 있습니다. 스킬은 구조를 먼저 제안하고 사용자와 수정한 뒤, 명시적인 생성 승인을 받으면 `JOBS.md`, 승인된 Job 폴더, 각 폴더의 빈 `AGENT.md`를 생성합니다.
 
-이 스킬은 Agent를 선택하거나 Job별 Harness 지침을 작성하지 않습니다. 여러 프로젝트에서 사용하려면 저장소의 `skills/job-decomposer`를 개인 Codex 스킬로 설치한 뒤, 전체 작업과 대상 프로젝트 폴더를 지정해 `$job-decomposer`를 호출합니다.
+이 스킬은 Agent를 선택하거나 Job별 Harness 지침을 작성하지 않습니다. 여러 프로젝트에서 사용하려면 아래처럼 개인 Codex 스킬 폴더에 복사한 뒤, 전체 작업과 대상 프로젝트 폴더를 지정해 `$job-decomposer`를 호출합니다.
+
+```bash
+mkdir -p ~/.codex/skills/job-decomposer
+cp skills/job-decomposer/SKILL.md ~/.codex/skills/job-decomposer/SKILL.md
+```
 
 ## 개발 확인
 

@@ -34,7 +34,7 @@ Present all of the following without writing files:
 
 Let the user merge, split, rename, add, remove, and reorder Jobs. Re-render the complete proposal after revisions.
 
-Approval of a question or draft is not permission to write. After showing the final preview, wait for an explicit creation instruction such as `만들어` or `생성해`.
+Approval of a question or draft is not permission to write. After showing the final preview, wait for an explicit creation instruction such as `만들어`, `생성해`, or `create`.
 
 ## JOBS.md Shape
 
