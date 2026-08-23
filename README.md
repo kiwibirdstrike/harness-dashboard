@@ -39,7 +39,7 @@ brew install tmux
 - Signature image: 선택 사항인 PNG 이미지
 - Accent: Agent 카드 구분 색상
 
-첫 실행 시 Codex, Claude, Gemini의 구분 아이콘과 기본 설명이 함께 등록됩니다. 목록은 컴퓨터 전체에서 공유되며 macOS는 `~/Library/Application Support/HarnessDashboard/agents.json`, Windows는 `%APPDATA%\HarnessDashboard\agents.json`에 저장됩니다. 삭제된 Agent가 프로젝트에 배치돼 있으면 해당 폴더에 `Missing agent`가 표시되며, 다른 Agent로 다시 배치할 때까지 실행되지 않습니다.
+첫 실행 시 Codex, Claude, Antigravity의 구분 아이콘과 기본 설명이 함께 등록됩니다. Antigravity의 기본 실행 명령은 `agy`입니다. 기존 기본 Gemini Agent는 앱을 다시 열면 같은 배치와 아이콘을 유지한 채 Antigravity로 자동 변경됩니다. 목록은 컴퓨터 전체에서 공유되며 macOS는 `~/Library/Application Support/HarnessDashboard/agents.json`, Windows는 `%APPDATA%\HarnessDashboard\agents.json`에 저장됩니다. 삭제된 Agent가 프로젝트에 배치돼 있으면 해당 폴더에 `Missing agent`가 표시되며, 다른 Agent로 다시 배치할 때까지 실행되지 않습니다.
 
 앱은 CLI 설치 여부나 구독 상태를 감지하지 않습니다. 등록한 실행 명령이 일반 터미널에서 먼저 동작하고 로그인이 완료돼 있어야 합니다.
 

@@ -146,11 +146,76 @@ class AgentRegistryTests(unittest.TestCase):
 
             agents = registry.load()
 
-            self.assertEqual([agent.name for agent in agents], ["Codex", "Claude", "Gemini"])
+            self.assertEqual(
+                [(agent.name, agent.command) for agent in agents],
+                [("Codex", "codex"), ("Claude", "claude"), ("Antigravity", "agy")],
+            )
             self.assertTrue(all(agent.description for agent in agents))
             self.assertTrue(all(agent.image and (registry.root / agent.image).is_file() for agent in agents))
             registry.delete(agents[0].id)
-            self.assertEqual([agent.name for agent in registry.load()], ["Claude", "Gemini"])
+            self.assertEqual([agent.name for agent in registry.load()], ["Claude", "Antigravity"])
+
+    def test_version_two_registry_migrates_only_the_stock_gemini_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agents.json").write_text(
+                '{"version": 2, "agents": ['
+                '{"id": "stock-id", "name": "Gemini", "command": "gemini", '
+                '"image": "images/stock-id.png", "color": "#0EA5E9", '
+                '"description": "기존 설명"}, '
+                '{"id": "custom-id", "name": "Gemini", "command": "gemini --model custom", '
+                '"image": null, "color": "#16A34A", "description": "직접 수정"}'
+                "]}",
+                encoding="utf-8",
+            )
+            (root / ".harness.json").write_text(
+                '{"version": 2, "assignments": {"research": "stock-id"}}',
+                encoding="utf-8",
+            )
+
+            agents = AgentRegistry(root).load()
+
+            self.assertEqual(
+                (
+                    agents[0].id,
+                    agents[0].name,
+                    agents[0].command,
+                    agents[0].image,
+                    agents[0].color,
+                    agents[0].description,
+                ),
+                (
+                    "stock-id",
+                    "Antigravity",
+                    "agy",
+                    "images/stock-id.png",
+                    "#0EA5E9",
+                    "기존 설명",
+                ),
+            )
+            self.assertEqual(
+                (agents[1].name, agents[1].command),
+                ("Gemini", "gemini --model custom"),
+            )
+            self.assertEqual(load_assignments(root), {"research": "stock-id"})
+            self.assertIn('"version": 3', (root / "agents.json").read_text(encoding="utf-8"))
+
+    def test_version_one_custom_gemini_agent_is_not_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agents.json").write_text(
+                '{"version": 1, "agents": [{"id": "custom-id", "name": "Gemini", '
+                '"command": "gemini --model custom", "image": null, '
+                '"color": "#16A34A"}]}',
+                encoding="utf-8",
+            )
+
+            agent = AgentRegistry(root).load()[0]
+
+            self.assertEqual(
+                (agent.name, agent.command, agent.image, agent.color, agent.description),
+                ("Gemini", "gemini --model custom", None, "#16A34A", ""),
+            )
 
     def test_version_one_registry_adds_starter_descriptions_and_icons(self):
         with tempfile.TemporaryDirectory() as tmp:

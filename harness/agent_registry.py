@@ -15,7 +15,7 @@ ACCENT_COLORS = ("#7C3AED", "#0EA5E9", "#D97706", "#16A34A", "#DC2626", "#DB2777
 STARTER_AGENTS = {
     "Codex": ("codex", "#7C3AED", "codex.png", "코딩, 디버깅, 테스트와 리팩터링에 적합"),
     "Claude": ("claude", "#D97706", "claude.png", "기획, 긴 문서 정리, 코드 리뷰와 복잡한 추론에 적합"),
-    "Gemini": ("gemini", "#0EA5E9", "gemini.png", "자료 조사, 멀티모달 분석과 Google 도구 작업에 적합"),
+    "Antigravity": ("agy", "#0EA5E9", "gemini.png", "Gemini 기반 코딩, 자료 조사와 Google 도구 작업에 적합"),
 }
 
 
@@ -63,13 +63,16 @@ class AgentRegistry:
             return agents
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or data.get("version") not in (1, 2):
+            if not isinstance(data, dict) or data.get("version") not in (1, 2, 3):
                 raise ValueError("unsupported version")
             agents = [Agent(**item) for item in data["agents"]]
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise RegistryError(f"Cannot read {self.path}: {error}") from error
+        if data["version"] < 3:
+            agents = [self._migrate_legacy_gemini(agent) for agent in agents]
         if data["version"] == 1:
             agents = [self._upgrade_agent(agent) for agent in agents]
+        if data["version"] < 3:
             self._save(agents)
         return agents
 
@@ -179,6 +182,19 @@ class AgentRegistry:
             agent.description or description,
         )
 
+    @staticmethod
+    def _migrate_legacy_gemini(agent: Agent) -> Agent:
+        if agent.name != "Gemini" or agent.command != "gemini":
+            return agent
+        return Agent(
+            agent.id,
+            "Antigravity",
+            "agy",
+            agent.image,
+            agent.color,
+            agent.description,
+        )
+
     def _copy_starter_icon(self, agent_id: str, name: str) -> str | None:
         asset_name = STARTER_AGENTS[name][2]
         base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
@@ -247,7 +263,7 @@ class AgentRegistry:
             ) as temporary:
                 temporary_path = Path(temporary.name)
                 json.dump(
-                    {"version": 2, "agents": [asdict(agent) for agent in agents]},
+                    {"version": 3, "agents": [asdict(agent) for agent in agents]},
                     temporary,
                     indent=2,
                 )
